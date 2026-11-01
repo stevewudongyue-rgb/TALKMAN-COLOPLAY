@@ -81,9 +81,10 @@ class MacDistributionTests(unittest.TestCase):
             with patch.object(build, "BUILD", root), patch.object(build, "DIST", root), \
                     patch.object(build, "run") as run, patch.object(build, "notarize") as notary, \
                     patch.object(Path, "symlink_to") as symlink:
-                image = build.make_disk_image(root / "TalkMan.app", test_build=True)
+                image = build.make_disk_image(root / "TALKMAN COLOPLAY.app", test_build=True)
             self.assertEqual(image.name, "TalkMan-Mac-AppleSilicon-测试版.dmg")
-            instructions = (root / "安装镜像-测试" / "安装说明.txt").read_text(encoding="utf-8")
+            instructions = (root / "COLOPLAY安装镜像-测试" / "安装说明.txt").read_text(encoding="utf-8")
+            self.assertIn("TALKMAN COLOPLAY.app", instructions)
             self.assertIn("未完成 Apple 公证", instructions)
             self.assertIn("无须安装 Python", instructions)
             symlink.assert_called_once_with("/Applications", target_is_directory=True)
