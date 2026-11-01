@@ -18,6 +18,7 @@ from talkman_version import VERSION, BUILD as APP_BUILD
 ROOT = Path(__file__).resolve().parent
 BUILD = ROOT / "TalkMan-build-mac"
 DIST = ROOT / "dist-mac"
+APP_NAME = "TALKMAN COLOPLAY.app"
 VENV = ROOT / "TalkMan-venv-mac"
 PYINSTALLER_VERSION = "6.22.3"
 SOURCE_FILES = ("talkman_coloplay_guide_preview.py", "talkman_coloplay_guide.py", "talkman_version.py", "talkman_free_service.py", "talkman_system_style.py", "talkman_coloplay_focus.py", "talkman_coloplay_scroll.py", "talkman_app.py", "talkman_qwen.py", "talkman_voice.py", "talkman_asr.py",
@@ -77,7 +78,7 @@ exe = EXE(
 )
 coll = COLLECT(exe, a.binaries, a.datas, strip=False, upx=False, name="TalkMan")
 app = BUNDLE(
-    coll, name="TalkMan.app", icon={str(ROOT / 'TalkMan-assets/app/TalkMan.icns')!r},
+    coll, name={APP_NAME!r}, icon={str(ROOT / 'TalkMan-assets/app/TalkMan.icns')!r},
     bundle_identifier="com.cololight.talkman.coloplay",
     info_plist={INFO_PLIST!r},
 )
@@ -174,9 +175,9 @@ def notarize(path: Path, profile: str) -> None:
 
 
 def make_disk_image(app: Path, *, test_build: bool = False) -> Path:
-    stage = BUILD / ("安装镜像-测试" if test_build else "安装镜像")
+    stage = BUILD / ("COLOPLAY安装镜像-测试" if test_build else "COLOPLAY安装镜像")
     stage.mkdir(exist_ok=True)
-    staged_app = stage / "TalkMan.app"
+    staged_app = stage / APP_NAME
     if staged_app.exists():
         shutil.rmtree(staged_app)
     run(["/usr/bin/ditto", app, staged_app])
@@ -184,7 +185,7 @@ def make_disk_image(app: Path, *, test_build: bool = False) -> Path:
     if not shortcut.is_symlink() and not shortcut.exists():
         shortcut.symlink_to("/Applications", target_is_directory=True)
     instructions = (
-        "把 TalkMan.app 拖到 Applications，再从“应用程序”打开。\n"
+        "把 TALKMAN COLOPLAY.app 拖到 Applications，再从“应用程序”打开。\n"
         "无须安装 Python。首次录音允许麦克风；需要填入 Agent 时再开启辅助功能。\n"
         "在设置的“Mac 授权”页可检测权限并直接打开系统设置。\n")
     if test_build:
@@ -194,7 +195,7 @@ def make_disk_image(app: Path, *, test_build: bool = False) -> Path:
             "仅对你信任的来源使用此功能；无需关闭系统安全保护。\n")
     (stage / "安装说明.txt").write_text(instructions, encoding="utf-8")
     image = DIST / ("TalkMan-Mac-AppleSilicon-测试版.dmg" if test_build else "TalkMan-Mac-AppleSilicon.dmg")
-    run(["/usr/bin/hdiutil", "create", "-volname", "Talk Man", "-srcfolder", stage,
+    run(["/usr/bin/hdiutil", "create", "-volname", "TALKMAN COLOPLAY", "-srcfolder", stage,
          "-ov", "-format", "UDZO", image])
     run(["/usr/bin/hdiutil", "verify", image])
     return image
@@ -244,10 +245,10 @@ def build(sign_identity: str | None = None, notary_profile: str | None = None, *
     print("构建 Apple Silicon 应用…", flush=True)
     run([python, "-m", "PyInstaller", "--noconfirm", "--clean",
          "--distpath", DIST, "--workpath", BUILD / "work", spec])
-    app = DIST / "TalkMan.app"
+    app = DIST / APP_NAME
     executable = app / "Contents" / "MacOS" / "TalkMan"
     if not executable.is_file():
-        raise RuntimeError("构建未生成完整的 TalkMan.app。")
+        raise RuntimeError("构建未生成完整的 TALKMAN COLOPLAY.app。")
     with (app / "Contents" / "Info.plist").open("rb") as stream:
         actual_info = plistlib.load(stream)
     if actual_info.get("NSMicrophoneUsageDescription") != INFO_PLIST["NSMicrophoneUsageDescription"]:
@@ -269,7 +270,7 @@ def build(sign_identity: str | None = None, notary_profile: str | None = None, *
         print("此版本未完成 Apple 公证；仅供测试，首次下载打开可能被系统阻止。")
     print("首次使用麦克风需要系统授权；若拒绝，可在系统设置→隐私与安全性→麦克风中调整。")
     print("首次允许后请松开并重新按住录音；授权本身不会开始录音。")
-    print("填入 Agent 需要系统设置→隐私与安全性→辅助功能授权；列表没有 TalkMan 时用 + 添加此 TalkMan.app，然后重新打开。")
+    print("填入 Agent 需要系统设置→隐私与安全性→辅助功能授权；列表没有 TALKMAN COLOPLAY 时用 + 添加此 TALKMAN COLOPLAY.app，然后重新打开。")
 
 
 def main() -> int:

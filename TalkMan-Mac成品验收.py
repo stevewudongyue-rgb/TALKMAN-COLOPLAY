@@ -13,7 +13,7 @@ from talkman_version import FULL_VERSION, VERSION, BUILD
 
 def main():
     root = Path('dist-mac').resolve()
-    app = root/'TalkMan.app'
+    app = root/'TALKMAN COLOPLAY.app'
     executable = app/'Contents/MacOS/TalkMan'
     subprocess.run(['codesign','--verify','--deep','--strict',str(app)],check=True)
     architecture = subprocess.check_output(['file',str(executable)],text=True).strip()
@@ -38,7 +38,7 @@ def main():
     with tempfile.TemporaryDirectory(prefix='TalkMan-mount-') as mount:
         subprocess.run(['hdiutil','attach','-readonly','-nobrowse','-mountpoint',mount,str(image)],check=True)
         try:
-            installed=Path(mount)/'TalkMan.app'
+            installed=Path(mount)/'TALKMAN COLOPLAY.app'
             info=plistlib.loads((installed/'Contents/Info.plist').read_bytes())
             assert info['CFBundleIdentifier']=='com.cololight.talkman.coloplay'
             assert info['CFBundleShortVersionString']==VERSION and info['CFBundleVersion']==str(BUILD)
