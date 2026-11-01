@@ -43,7 +43,14 @@ class AutomaticServiceTests(unittest.TestCase):
         urls = [call.args[0].full_url for call in self.opener.open.call_args_list]
         self.assertEqual(urls, [free.SERVICE_URL+'/v1/enroll', free.SERVICE_URL+'/v1/status'])
         token = self.service._profile['token']
-        self.assertNotIn(token.encode(), (self.directory/free.PROFILE).read_bytes())
+        if free.sys.platform == 'darwin':
+            self.assertTrue((self.directory/'free-service.enabled').exists())
+            self.assertFalse((self.directory/free.PROFILE).exists())
+            self.assertEqual(json.loads(free.load_keychain_secret(self.directory, 'free'))['token'], token)
+        else:
+            self.assertTrue((self.directory/free.PROFILE).exists())
+        for file in self.directory.iterdir():
+            self.assertNotIn(token.encode(), file.read_bytes())
         reopened = free.FreeService(self.directory)
         self.assertEqual(reopened._load_profile()['token'], token)
         reopened.close()
