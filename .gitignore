@@ -1,0 +1,7 @@
+__pycache__/
+*.pyc
+TalkMan-venv-mac/
+TalkMan-build-mac/
+dist-mac/
+*.dpapi
+.env

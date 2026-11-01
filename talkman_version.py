@@ -1,0 +1,47 @@
+"""版本信息唯一来源；设置、诊断与打包共用，不读取用户配置。"""
+PRODUCT_NAME = 'TALKMAN COLOPLAY'
+VERSION = '0.1.28'
+BUILD = 46
+FULL_VERSION = f'{VERSION}.{BUILD}'
+RELEASE_DATE = '2026-11-02'
+DESKTOP_VERSION = '0.1.28.29'
+DESKTOP_COMMIT = 'db67aaf'
+RELEASE_NOTES = (
+    ('0.1.28.46', '2026-11-02', '修复 Wi-Fi 心跳发送任务停住后反复重连：卡带改为逐连接顺序收发，发送失败不再丢弃队列并自动重建任务；新卡带状态间隔 100 毫秒，电脑记录脱敏断线原因。需要更新 USB＋Wi-Fi 卡带。新增 Apple 芯片 Mac 测试 DMG。'),
+    ('0.1.28.45', '2026-11-02', 'Windows 和 Mac 新安装默认使用免费语音与星辰文字服务，首次启动自动接入，无需逐台人工开通；保留已有模型选择和 Key。通过 HTTPS 连接，每份安装生成独立身份，升级保留；免费额度统一受服务端控制。'),
+    ('0.1.28.44', '2026-11-01', '设备教程增加逐条悬停动画、暂停和重播，说明免费服务及千问 API Key 推荐。填入后五秒内允许左下新录入、右下＋左下新指令，并取消上次发送确认。Wi-Fi 空闲状态去重，卡带接收主动让出协程以维持心跳。需更新桌面与 ROM。'),
+    ('0.1.28.43', '2026-11-01', '右下＋旋转预选目标，松开右下选定，取消停稳延迟。旋钮批量处理并缓存字素边界。填入后 5 秒左上发送、右上取消，其余设备动作暂锁定；右下＋短按旋钮发送目标已有内容，按住转动取消。贴边编辑主动展开，发送成功收起。增加首次使用图解教程及设置重看入口。需同步更新桌面与 ROM。'),
+    ('0.1.28.42', '2026-11-01', '旋钮默认移动光标，点按开始／结束选区；右下＋旋转选择目标，右下＋左上显隐窗口。改写对照中旋转滚动预览。设备填入后 5 秒内点按旋钮可核对并发送；转动、编辑或换目标即取消。右上改为退格，组合清空保留；结束录音容许同轮转写更新。需同步更新桌面与 ROM。'),
+    ('0.1.28.41', '2026-11-01', 'COLOPLAY 设置新增「隐藏设备已有操作按钮」，默认开启。设备连接后收起桌面录音／覆盖、指令修改和 AI 整理按钮，编辑区自动扩展；关闭开关、断开或退出设备模式后恢复。沿用 .40 卡带，无需重刷。'),
+    ('0.1.28.40', '2026-11-01', '先按住右下再按右上清空编辑区，可用上一步恢复；右上单按仍为 Delete／取消。小屏与模拟器同步提示，模拟器支持 Shift＋右上。新增设备动作，需同步更新电脑程序与卡带。'),
+    ('0.1.28.39', '2026-11-01', '同步 Desktop 设置窗口刷新修复：只在尺寸与滚动条状态变化时更新，避免重复刷新；切换设置页回到顶部，保留聚焦控件自动露出。'),
+    ('0.1.28.38', '2026-11-01', '同步 Desktop 0.1.28：豆包富文本聚焦、桌面二次下发校验、填入后延迟调整编辑区、录音点按计时、设置分组与系统标题栏。新增免费内测入口，需单独开通；保留 COLOPLAY 绿屏、旋钮选字及设备只填入。'),
+    ('0.1.27.37', '2026-11-01', '点击编辑区进入明确聚焦状态，旋钮以光标为起点向前／向后选择完整字符；点击区外或切换窗口恢复 Agent 选择，小屏同步提示。'),
+    ('0.1.27.36', '2026-11-01', '默认骇客绿屏：字标、正文、图标、光标与按钮统一绿色；TALKMAN 和 COLOPLAY 共用点阵组合字标，录音时显示字符雨。设置可切回 Nothing 黑白深浅色，主题自动记住。'),
+    ('0.1.27.35', '2026-11-01', '取消右下短按松开复制及对应设置；右下仅作为指令修改、纵向／横向滚动的组合键。'),
+    ('0.1.27.34', '2026-11-01', '顶部组合标识与连接状态；设置版本记录；右下短按复制，按住转旋钮纵向滚动，同时按住旋钮横向滚动。'),
+    ('0.1.27.33', '2026-11-01', '同步 Desktop 约定词学习、选区翻译、文字保护与布局改进；新增五项 COLOPLAY 偏好。'),
+    ('构建 32', '2026-10-31', '修复旋钮切换窗口的失焦处理和配置落盘阻塞，保留目标窗口绿框。'),
+)
+
+
+def version_record():
+    return (f'{PRODUCT_NAME}  {FULL_VERSION}\n'
+            f'更新日期：{RELEASE_DATE}　构建号：{BUILD}\n'
+            f'已同步 Desktop：{DESKTOP_VERSION}（{DESKTOP_COMMIT}）\n\n' +
+            '\n\n'.join(f'{v} · {date}\n{note}' for v, date, note in RELEASE_NOTES))
+
+
+def windows_resource():
+    parts = tuple(int(x) for x in FULL_VERSION.split('.'))
+    return f'''VSVersionInfo(
+  ffi=FixedFileInfo(filevers={parts!r}, prodvers={parts!r}, mask=0x3f,
+    flags=0x0, OS=0x40004, fileType=0x1, subtype=0x0, date=(0,0)),
+  kids=[StringFileInfo([StringTable('040904B0', [
+    StringStruct('CompanyName', 'Cololight'),
+    StringStruct('FileDescription', '{PRODUCT_NAME}'),
+    StringStruct('FileVersion', '{FULL_VERSION}'),
+    StringStruct('ProductName', '{PRODUCT_NAME}'),
+    StringStruct('ProductVersion', '{FULL_VERSION}'),
+    StringStruct('OriginalFilename', 'TalkMan.exe')
+  ])]), VarFileInfo([VarStruct('Translation', [1033,1200])])])'''

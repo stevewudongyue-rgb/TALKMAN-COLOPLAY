@@ -1,0 +1,55 @@
+coloX-16
+version 1
+style:util
+name:TALKMAN COLOPLAY USB
+author:Cololight
+desc:纯 USB 桌面控制器，无需 Wi-Fi，初代 240×240
+
+__lua__
+#include TalkMan-连接配置.lua
+#include TalkMan-手势.lua
+#include TalkMan-屏幕.lua
+local json=require('cjson_safe')
+local seq=0
+local last=-999
+local oldmask=-1
+local exited=false
+local gesture=TMGesture(TM_CONFIG)
+local function now() return stat(12) end
+local function send(mask,leave)
+ local frame=-1
+ if img_airinfo then
+  local w,h,id,sz,age=img_airinfo()
+  if w and age<1500 then frame=id end
+ end
+ seq=seq+1
+ svcreq('ex','usb:tx:TMCP1 '..json.encode({v=1,token=TM_CONFIG.token,
+  config=TM_CONFIG.config,seq=seq,mask=mask,frame=frame,exit=leave==true})..'\n')
+end
+function _init() btnpcfg(255,0) end
+function _update()
+ local buttons={};local mask=0
+ for i=0,7 do buttons[i]=btn(i);if buttons[i] then mask=mask+2^i end end
+ for _,action in ipairs(gesture:step(buttons,now())) do
+  if action=='exit' then
+   send(0,true);exited=true;toidle();return
+  end
+ end
+ if not exited and (mask~=oldmask or now()-last>=50) then
+  send(mask,false);oldmask=mask;last=now()
+ end
+end
+function _draw()
+ if img_airinfo and img_scrair then
+  local w,h,id,sz,age=img_airinfo()
+  if w==240 and h==240 and age<1500 and img_scrair() then return end
+ end
+ TMDraw({now=now(),ready=false,configured=false,buttons={},exit_ms=5000,
+  connection_hint=img_scrair and '电脑连接 USB' or '请升级图流固件'})
+end
+function _idle_update()
+ exited=false;gesture=TMGesture(TM_CONFIG);oldmask=-1;last=-999
+end
+function _idle_draw()
+ TMDraw({now=now(),ready=false,buttons={},exit_ms=5000,inactive=true})
+end

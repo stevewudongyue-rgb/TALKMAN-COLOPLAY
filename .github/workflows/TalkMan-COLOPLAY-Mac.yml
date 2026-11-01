@@ -1,0 +1,58 @@
+name: TALKMAN COLOPLAY · Mac 测试安装包
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - '*.py'
+      - 'TalkMan-requirements.txt'
+      - 'TalkMan-Mac.entitlements'
+      - 'TalkMan-assets/**'
+      - 'TalkMan-设备卡带/**'
+      - '.github/workflows/TalkMan-COLOPLAY-Mac.yml'
+permissions:
+  contents: read
+concurrency:
+  group: coloplay-mac-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  build:
+    name: Apple 芯片 · 构建与验证
+    runs-on: macos-15
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          architecture: arm64
+      - name: 构建 Apple 芯片测试 DMG
+        env:
+          MACOSX_DEPLOYMENT_TARGET: '14.0'
+        run: python3 TalkMan-构建Mac.py --test-dmg
+      - name: 检查 Wi-Fi、按键及 Mac 编辑逻辑
+        run: |
+          set -e
+          for module in test_talkman_coloplay_revision46 test_talkman_coloplay_revision44 test_talkman_coloplay_revision43 test_talkman_coloplay_revision45 test_talkman_target_macos test_talkman_macos_setup test_talkman_app; do
+            TalkMan-venv-mac/bin/python -u -c 'import faulthandler, sys, unittest; faulthandler.dump_traceback_later(180, exit=True); unittest.main(module=sys.argv.pop(), verbosity=2)' "$module"
+          done
+      - name: 校验成品与 DMG
+        run: TalkMan-venv-mac/bin/python TalkMan-Mac成品验收.py
+      - name: 保存 Mac 安装文件
+        uses: actions/upload-artifact@v4
+        with:
+          name: TalkMan-COLOPLAY-Mac-AppleSilicon
+          path: |
+            dist-mac/*.dmg
+            dist-mac/TalkMan-Mac-AppleSilicon.zip
+            dist-mac/TalkMan-SHA256SUMS.txt
+            dist-mac/TalkMan-Mac验收.json
+          if-no-files-found: error
+          retention-days: 30
+      - name: 保存构建诊断
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: TalkMan-COLOPLAY-Mac诊断
+          path: dist-mac/*.log
+          if-no-files-found: ignore

@@ -1,0 +1,245 @@
+coloX-16
+version 1
+style:util
+name:TALKMAN COLOPLAY
+author:Cololight
+desc:桌面语音编辑控制器，左上长按五秒退出设备模式
+
+__lua__
+usemod('net')
+#include colox_net.lua
+#include colox_http.lua
+#include colox_ws.lua
+#include TalkMan-连接配置.lua
+#include TalkMan-手势.lua
+#include TalkMan-屏幕.lua
+
+local json=require('cjson_safe')
+local cfg=TM_CONFIG
+local gesture=TMGesture(cfg)
+local ws=nil
+local state={}
+local received=-999
+local seq=0
+local session=nil
+local pending=nil
+local awaiting=nil
+local turns=0
+local turn_target=false
+local target_commit=false
+local deferred=nil
+local scrolls=0
+local scroll_axis=''
+local scroll_time=0
+local modifier=false
+local outgoing={}
+local serial=0
+local exiting=false
+local exited=false
+local resumed=false
+local message='请在电脑配对'
+local exit_started=0
+local usb_sn=0
+local function now() return stat(12) end
+local function live() return ws and state.ready and now()-received<2000 end
+local function enqueue(item)
+ if #outgoing<8 then outgoing[#outgoing+1]=item end
+end
+local function cancel_arm()
+ pending=nil
+ enqueue({type='cancel_intent'})
+end
+local function request(action,wait_release,steps)
+ if not live() or exiting or pending or awaiting then return end
+ serial=serial+1
+ pending={id=tostring(serial),action=action,started=now(),release=not wait_release}
+ enqueue({type='intent',id=pending.id,action=action,steps=steps or 1,
+          confirmation=state.confirmation or '',target_marker=state.target_marker or ''})
+end
+local function usb(action)
+ local key=cfg.keys[action]
+ if not key then return end
+ usb_sn=usb_sn+1
+ -- 显式按下、延迟、全部松开；不能让修饰键滞留。
+ local bytes=string.char(6,key[1],1,key[2],1,65,6,0,0)
+ svcset('talkman','usb',{stat=0,sn=usb_sn,seq=bytes})
+ local ok=svcreq('usbkey','talkman.usb')
+ if ok==false then message='USB 未就绪' end
+end
+local function disconnect()
+ state={}; received=-999; pending=nil; awaiting=nil; deferred=nil; turns=0; outgoing={}; session=nil; seq=0
+ scrolls=0
+ target_commit=false
+end
+
+local function network_loop()
+ while true do
+  if not exited and not exiting and cfg.url~='' then
+   message='正在连接电脑'
+   local sock,err=ws_connect(cfg.url)
+   if sock then
+    disconnect()
+    ws=sock
+    -- 每次重连在同一个任务内完成握手、心跳、动作发送和状态接收。
+    -- 不依赖只在启动时创建一次、异常退出后无法恢复的发送协程。
+    local ok=sock:send(json.encode({type='hello',version=1,token=cfg.token,config=cfg.config,
+                                   heartbeat='state-ack',device_build=46}))
+    local last_heartbeat=-999
+    while ok and not sock:isclosed() and not exited do
+     if exiting then
+      sock:send(json.encode({type='exit'}))
+      exited=true; exiting=false; toidle(); break
+     end
+     if now()-last_heartbeat>800 then
+      ok=sock:send(json.encode({type='heartbeat'}))
+      if not ok then break end
+      last_heartbeat=now()
+     end
+     -- 上一帧产生的动作先发出；只有发送成功才移出队列。
+     for _=1,8 do
+      if #outgoing==0 then break end
+      ok=sock:send(json.encode(outgoing[1]))
+      if not ok then break end
+      table.remove(outgoing,1)
+     end
+     if not ok then break end
+     local frame=sock:receive()
+     if not frame or frame.op=='close' then break end
+     if frame.op=='text' then
+      local value=json.decode(frame.data)
+      if value and value.type=='state' and value.version==1 then
+       if session and session~=value.session then break end
+       if type(value.seq)=='number' and value.seq>seq then
+        session=value.session; seq=value.seq; state=value; received=now()
+       end
+      end
+     end
+     -- 收到连续缓存帧时也让出协程，保证心跳、按键和绘图都有执行机会。
+     copas.sleep(0)
+    end
+    if not sock:isclosed() then sock:close() end
+    if ws==sock then ws=nil; disconnect() end
+    message='电脑连接已断开'
+   else message='电脑连接未成功' end
+  end
+  copas.sleep(1)
+ end
+end
+
+function _init()
+ btnpcfg(255,0)
+ -- 在 VM 完成初始化后启动，避免使用初始化前的应用逻辑时钟安排休眠。
+ copas.addthread(function()
+  while true do
+   local ok=pcall(network_loop)
+   if not ok then
+    -- 仅记录固定提示，不输出认证帧。错误不能让网络任务永久消失。
+    printh('TALKMAN network task restarted')
+    if ws then pcall(function() ws:close() end) end
+    ws=nil; disconnect()
+   end
+   copas.sleep(1)
+  end
+ end)
+end
+function _update()
+ if resumed then
+  resumed=false; exited=false; exiting=false; gesture=TMGesture(cfg)
+ end
+ local buttons={}
+ for i=0,7 do buttons[i]=btn(i) end
+ if buttons[3] and not modifier then turns=0;target_commit=false;cancel_arm();awaiting=nil end
+ if modifier and not buttons[3] then
+  scrolls=0
+  if pending and string.sub(pending.action,1,7)=='scroll_' then cancel_arm() end
+ end
+ modifier=buttons[3]
+ for _,action in ipairs(gesture:step(buttons,now())) do
+  if action=='exit' then
+   exiting=true; exit_started=now(); pending=nil; outgoing={}
+  elseif action=='cancel_arm' then turns=0;target_commit=false; cancel_arm()
+  elseif action=='arm_knob' or action=='arm_ai' or action=='arm_send_current' then
+   turns=0;target_commit=false;request(string.sub(action,5),true)
+  elseif action=='fill' or action=='knob' or action=='ai' or action=='send_current' then
+   local key=action=='fill' and 'knob' or action
+   if pending and pending.action==key then pending.release=true;pending.commit=action end
+  elseif action=='target_commit' then target_commit=true
+  elseif action=='cancel_delete' or action=='clear' then
+   turns=0; target_commit=false;scrolls=0; deferred=nil; cancel_arm(); awaiting=nil; request(action,false)
+  elseif action=='previous' or action=='next' or action=='target_previous' or action=='target_next' then
+   local target=string.sub(action,1,7)=='target_'
+   if turn_target~=target then turns=0 end
+   turn_target=target
+   turns=math.max(-32,math.min(32,turns+((action=='next' or action=='target_next') and 1 or -1)))
+  elseif (action=='record' or action=='rewrite') and (pending or awaiting) then
+   -- 前一个按键尚待回执时保留一次点按；不因为网络延迟丢掉结束。
+   local prior=pending and pending.action or awaiting and awaiting.action
+   if prior=='record' or prior=='rewrite' then deferred={action=action,started=now()}
+   else cancel_arm();awaiting=nil;request(action,false) end
+  elseif string.sub(action,1,7)=='scroll_' then
+   local axis=(action=='scroll_left' or action=='scroll_right') and 'x' or 'y'
+   if axis~=scroll_axis then scrolls=0 end
+   scroll_axis=axis;scroll_time=now()
+   scrolls=math.max(-8,math.min(8,scrolls+((action=='scroll_down' or action=='scroll_right') and 1 or -1)))
+  else turns=0;target_commit=false;request(action,false) end
+ end
+ if awaiting and (state.arm~=awaiting.id or now()-awaiting.started>1000) then awaiting=nil end
+ if deferred and (now()-deferred.started>800 or not live()) then deferred=nil end
+ if deferred and not pending and not awaiting then
+  local a=deferred.action;deferred=nil
+  -- 若前次录音没有启动成功，不能把“结束”的第二击变成另一轮开始。
+  if state.phase=='opening' or state.phase=='recording' then request(a,false) end
+ end
+ if now()-scroll_time>300 or not live() or not modifier then scrolls=0 end
+ if not pending and not awaiting and scrolls~=0 and live() then
+  local direction=scrolls>0 and 1 or -1
+  scrolls=scrolls-direction
+  request(scroll_axis=='x' and (direction>0 and 'scroll_right' or 'scroll_left') or (direction>0 and 'scroll_down' or 'scroll_up'),false)
+ end
+ if not pending and not awaiting and turns~=0 and live() then
+  local direction=turns>0 and 1 or -1
+  local steps=math.abs(turns);turns=0
+  request(turn_target and (direction>0 and 'target_next' or 'target_previous') or (direction>0 and 'next' or 'previous'),false,steps)
+ end
+ if target_commit and not pending and not awaiting and turns==0 and live() then
+  target_commit=false;request('target_commit',false)
+ end
+ if pending then
+  if now()-pending.started>=(string.sub(pending.action,1,7)=='scroll_' and 300 or 2200) or not live() then cancel_arm()
+  elseif state.arm==pending.id and pending.release then
+   usb(pending.commit or pending.action); awaiting={id=pending.id,action=pending.action,started=now()}; pending=nil
+  end
+ end
+ -- 网络异常不能阻止五秒退出；桌面心跳超时后恢复完整界面。
+ if exiting and now()-exit_started>300 then
+  exited=true; exiting=false; disconnect(); toidle()
+ end
+end
+function _idle_update() resumed=true end
+
+-- 绘图独立于连接与手势，可在官方 VM 中验证所有状态。
+function _draw()
+ local buttons={}
+ for i=0,7 do buttons[i]=btn(i) end
+ TMDraw({now=now(),ready=live(),phase=state.phase,title=state.title,
+  editor_focused=state.editor_focused,selection_count=state.selection_count,selecting=state.selecting,send_seconds=state.send_seconds,
+  target=state.target,target_choice=state.target_choice,target_view=state.target_view,cycling=state.cycling,
+  target_previous=state.target_previous,target_next=state.target_next,
+  target_index=state.target_index,target_count=state.target_count,target_error=state.target_error,
+  target_page_names=state.target_page_names,target_page_start=state.target_page_start,
+  target_page=state.target_page,target_pages=state.target_pages,
+  target_waiting=state.target_waiting,target_scanning=state.target_scanning,target_progress=state.target_progress,
+  configured=cfg.url~='',buttons=buttons,modifier=btn(3),
+  ul=gesture.ul,exit_ms=cfg.exit_ms,can_fill=state.can_fill,can_copy=state.can_copy,
+  pending=pending and pending.action=='knob' and (state.send_seconds or 0)==0,armed=pending and state.arm==pending.id,
+  hold_short=pending and now()-pending.started<cfg.fill_ms,
+  fill_progress=pending and pending.action=='knob' and btn(cfg.center) and
+   math.min(1,math.max(0,(now()-pending.started)/cfg.fill_ms)) or nil,
+  fill_cancelled=gesture.knob~=nil and gesture.cancelled,
+  send_current=gesture.knob~=nil and gesture.send_combo and not gesture.cancelled,
+  inactive=exited})
+ copas.step()
+end
+function _idle_draw()
+ TMDraw({now=now(),ready=false,buttons={},exit_ms=cfg.exit_ms,inactive=true})
+end
