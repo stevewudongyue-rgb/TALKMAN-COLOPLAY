@@ -2,77 +2,62 @@
 
 **说话输入，在电脑上编辑，用 COLOPLAY 操作，确认后填入 Agent。**
 
-TALKMAN COLOPLAY 是配合初代 COLOPLAY 使用的独立桌面客户端。文字在电脑上阅读和修改；设备的旋钮、四个按键和圆屏负责快捷操作与状态提示。没有设备时，也可使用桌面按钮和设置中的设备模拟器。
+配合初代 COLOPLAY 的独立桌面客户端：电脑负责文字编辑，设备旋钮、四个按键和圆屏负责操作与提醒。没有设备时也能使用桌面按钮和设置中的模拟器。
 
 ## 下载
 
-当前测试版：**0.1.28.45 · 2026-11-02**
+**测试版 0.1.28.46 · 2026-11-02**
 
-| 文件 | 用途 |
+| 安装文件 | 适用设备 |
 |---|---|
-| [Windows 安装器](https://github.com/stevewudongyue-rgb/TALKMAN-COLOPLAY/releases/download/coloplay-v0.1.28.45/TalkMan-COLOPLAY-0.1.28.45-Windows-x64-Setup.exe) | 推荐；适用于 Windows 10／11 x64，无需安装 Python |
-| [Windows 便携版](https://github.com/stevewudongyue-rgb/TALKMAN-COLOPLAY/releases/download/coloplay-v0.1.28.45/TalkMan-COLOPLAY-0.1.28.45-Windows-x64-Portable.zip) | 完整解压后运行 TalkMan.exe，须保留旁边的 `_internal` 文件夹 |
-| [Mac 构建源码包](https://github.com/stevewudongyue-rgb/TALKMAN-COLOPLAY/releases/download/coloplay-v0.1.28.45/TalkMan-COLOPLAY-0.1.28.45-Mac-Build.zip) | 面向 Apple 芯片 Mac；不是已编译的 .app／.dmg，需在 Mac 上构建 |
-| [文件校验值](https://github.com/stevewudongyue-rgb/TALKMAN-COLOPLAY/releases/download/coloplay-v0.1.28.45/TalkMan-SHA256SUMS.txt) | SHA-256 校验 |
+| [Windows 安装器](https://github.com/stevewudongyue-rgb/TALKMAN-COLOPLAY/releases/download/coloplay-v0.1.28.46/TalkMan-COLOPLAY-0.1.28.46-Windows-x64-Setup.exe) | Windows 10／11 x64 |
+| [Mac 安装镜像 DMG](https://github.com/stevewudongyue-rgb/TALKMAN-COLOPLAY/releases/download/coloplay-v0.1.28.46/TalkMan-COLOPLAY-0.1.28.46-Mac-AppleSilicon.dmg) | Apple 芯片 M1 及以后，macOS 14 及以上 |
+| [Windows 便携版](https://github.com/stevewudongyue-rgb/TALKMAN-COLOPLAY/releases/download/coloplay-v0.1.28.46/TalkMan-COLOPLAY-0.1.28.46-Windows-x64-Portable.zip) | 完整解压运行，保留 `_internal` 文件夹 |
+| [校验值](https://github.com/stevewudongyue-rgb/TALKMAN-COLOPLAY/releases/download/coloplay-v0.1.28.46/TalkMan-SHA256SUMS.txt) | SHA-256 |
 
-[查看本版发布说明](https://github.com/stevewudongyue-rgb/TALKMAN-COLOPLAY/releases/tag/coloplay-v0.1.28.45)
+[本版发布说明](https://github.com/stevewudongyue-rgb/TALKMAN-COLOPLAY/releases/tag/coloplay-v0.1.28.46)
 
-## 第一次使用
+## 开始使用
 
-1. 安装并打开程序。全新安装默认接入**免费语音识别和星辰文字改写**，无需填写 API Key，也无需逐台申请开通。
-2. 点击“录音和覆盖”，说完再点一次停止；也支持按住说、松开停止。选中文字时覆盖选区，没有选区时在光标处输入。
-3. 选一段文字后使用“指令修改”，说出修改要求；也可以用 AI 整理，检查改写结果后确认。
-4. 选择目标 Agent，点击“填入”。核对后再发送。
+1. Windows 运行安装器；Mac 打开 DMG，把 **TALKMAN COLOPLAY.app 拖到 Applications**，再从“应用程序”打开。均无需 Python。
+2. 新安装默认使用**免费语音识别与星辰文字改写**，无需 API Key。点击“录音和覆盖”开始，再点停止；选中文字时覆盖选区。
+3. “指令修改”按口述要求修改文字；AI 改写可先检查再确认。
+4. 选择目标 Agent，先填入输入框，核对后再发送。
 
-联网时，主动录制的音频和需要处理的文字会发送到在线服务。免费服务目前使用 SenseVoiceSmall 识别语音、星辰 Xing4.0-29B 处理文字；受额度和服务策略影响，可能调整、暂停或不可用。请求失败会保留原文，不自动切换到收费模型。
+Mac 首次录音允许麦克风，填入 Agent 时开启辅助功能。此 DMG 是未公证测试版；若系统阻止，尝试打开后到 **系统设置 → 隐私与安全性 → 仍要打开**，无需关闭系统安全保护。Intel Mac 暂不支持。
 
-推荐长期使用者在 **设置 → 模型连接** 配置自己的千问 API Key，然后关闭“使用免费服务”；用量按自己的千问账户计费。
+联网时，主动录制的音频及待处理文字会发给在线服务。免费服务使用 SenseVoiceSmall 和星辰 Xing4.0-29B，受额度及服务策略限制。推荐长期使用者在 **设置 → 模型连接** 填入自己的千问 API Key，再关闭免费服务；按自己的账户计费。
 
-## COLOPLAY 操作
-
-以下为当前初代设备的操作定义，需要匹配的 TalkMan 卡带与桌面客户端。
+## 设备操作
 
 | 操作 | 功能 |
 |---|---|
-| 旋转旋钮 | 在预输入框中前后移动光标；改写对照时滚动预览 |
-| 短按旋钮 | 开始／结束选框；选框过程中旋转可扩展或缩小选区 |
-| 按住右下＋旋转 | 预选 Agent，松开右下时确定目标 |
-| 长按旋钮后松开 | 填入目标输入框，不直接发送；按住时旋转会取消 |
+| 转旋钮 | 移动光标；AI 对照时滚动预览 |
+| 短按旋钮 | 开始／结束选框 |
+| 右下＋旋转 | 预选 Agent，松开右下确定 |
+| 长按旋钮后松开 | 填入目标；按住时转动取消 |
 | 左下 | 开始／结束录入 |
 | 右下＋左下 | 指令修改 |
-| 左上 | AI 改写／确认改写；长按 5 秒退出设备模式，桌面客户端保留 |
-| 右上 | 退格或删除选区；录入／处理过程中取消 |
-| 右下＋右上 | 清空编辑区，可撤销 |
-| 右下＋左上 | 显示／隐藏桌面窗口 |
-| 右下＋短按旋钮 | 在允许的状态下，发送目标输入框已有内容；长按或转动取消 |
+| 左上 | AI 改写／确认；长按 5 秒退出设备模式 |
+| 右上 | 退格／删除选区，录入中取消 |
+| 右下＋右上 | 清空全文，可撤销 |
+| 右下＋左上 | 显示／收起窗口 |
+| 右下＋短按旋钮 | 发送目标输入框已有内容 |
 
-**填入成功后的 5 秒内：**短按左上确认发送，右上取消。左下可直接开始新录入，右下＋左下可开始新指令，这两种操作会取消上一次发送机会。
+填入后的 **5 秒内，左上发送、右上取消**。左下可开启新录入，右下＋左下可开启新指令，均取消旧的发送机会。
 
-**设置 → COLOPLAY** 可以配置设备连接、重看图解教程；悬停教程中的数字或说明可查看小动画。设备模拟器也放在设置中。
+**设置 → COLOPLAY** 提供连接配置、设备模拟器和图解教程；教程说明可悬停查看动画。支持骇客绿屏与 Nothing 黑白主题。
 
-通用安装器不刷写设备，也不包含任何人的配对口令或私人 ROM。新电脑需配置自己的设备连接，免费模型接入不依赖 COLOPLAY 是否连接。现有的 USB／Wi-Fi 协议继续支持；纯 USB 图流需要设备固件支持 airimg。
+## Wi-Fi 修复与升级
 
-## 升级与设置
+本版修复设备发送任务停住后心跳缺失、电脑每四秒断开的问题。**USB＋Wi-Fi 模式必须同时更新桌面客户端与对应的配对卡带，只更新 EXE／DMG 不够。**新卡带逐连接重建完整收发循环；电脑保留脱敏断线日志。
 
-退出旧客户端后，直接覆盖安装，无需先卸载。已保存的 API Key、模型选择、历史、快捷键和设备配对会保留；已有用户明确关闭免费服务或使用自备模型的选择也会保留。仅临时使用、未勾选本机保存的 Key 不会跨重启恢复。
+通用安装包不含个人配对口令。已配对设备使用本机生成的新版卡带；换电脑需重新配置该电脑的连接。纯 USB 图流要求设备固件支持 airimg。免费模型接入与设备配对相互独立。
 
-Windows 的用户数据位于 `%LOCALAPPDATA%\TalkMan-COLOPLAY`，与程序安装目录分开。免费连接身份自动生成并由系统加密保存；安装包不包含供应商 Key、共享用户身份或管理员私钥。
+退出旧程序后覆盖安装即可，已保存的 Key、历史、快捷键与设备配置保留。Windows 数据存于 `%LOCALAPPDATA%\TalkMan-COLOPLAY`；Mac 使用独立用户目录和钥匙串。
 
-## Mac 状态
+## 验证范围
 
-自动免费接入和钥匙串保存已纳入同一套 Mac 代码。当前提供的是 **Apple 芯片 Mac 的完整构建包**，尚未在 Mac 上生成、运行和验收本版 .app／.dmg。
+Windows 安装、覆盖升级、设置保留与成品检查通过。Wi-Fi 已取得旧版实机心跳超时证据；修复版通过故障注入和官方完整卡带模拟器单连接验证。Mac 通过原生构建、回归、成品启动及 DMG 挂载检查。
 
-在 Mac 安装 python.org 的 Python 3.12 或 3.13，解压构建包，在该目录执行：
-
-```bash
-bash TalkMan-构建Mac.command --test-dmg
-```
-
-生成的应用和测试镜像位于 `dist-mac`。此测试构建未完成 Apple 公证；首次录音需要麦克风权限，填入 Agent 需要辅助功能权限。构建不要求填写模型 Key。
-
-## 本版验证
-
-- 两份空白安装身份经公网自动接入，免费合成语音识别和星辰改写实测通过。
-- Windows 成品 52 项界面自检、成品联网检查通过。
-- 隔离目录连续两次覆盖安装，测试 Key、设置、历史及配对逐字节保留；安装后运行和卸载通过。
-- Wi-Fi 状态推送和心跳调度已修正并通过隔离测试；实体设备长时间稳定性仍待验收。Mac 原生运行、真实麦克风及真实 Agent 操作不属于本轮验证结果。
+**修复版仍待实体 COLOPLAY 长时间复测；真实麦克风和真实 Agent 操作需在目标电脑验收。**
