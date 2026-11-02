@@ -31,7 +31,7 @@ SOURCE_FILES = ("talkman_coloplay_guide_preview.py", "talkman_coloplay_guide.py"
                 "talkman_onboarding.py", "talkman_hover_help.py", "talkman_ai_edit.py",
                 "talkman_conventions.py", "talkman_conventions_ui.py", "talkman_convention_learning.py",
                 "talkman_delivery_ui.py", "talkman_translation.py", "talkman_translation_ui.py",
-                "talkman_coloplay.py", "talkman_coloplay_protocol.py", "talkman_coloplay_server.py",
+                "talkman_coloplay.py", "talkman_coloplay_protocol.py", "talkman_coloplay_server.py", "talkman_coloplay_discovery.py",
                 "talkman_coloplay_highlight.py", "talkman_coloplay_preview.py", "talkman_coloplay_usb.py")
 INFO_PLIST = {
     "CFBundleDisplayName": "TALKMAN COLOPLAY",

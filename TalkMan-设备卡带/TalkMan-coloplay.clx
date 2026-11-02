@@ -11,11 +11,13 @@ usemod('net')
 #include colox_http.lua
 #include colox_ws.lua
 #include TalkMan-连接配置.lua
+#include TalkMan-发现电脑.lua
 #include TalkMan-手势.lua
 #include TalkMan-屏幕.lua
 
 local json=require('cjson_safe')
 local cfg=TM_CONFIG
+local discovery=TMDiscovery and TMDiscovery(cfg)
 local gesture=TMGesture(cfg)
 local ws=nil
 local state={}
@@ -74,16 +76,19 @@ end
 
 local function network_loop()
  while true do
-  if not exited and not exiting and cfg.url~='' then
-   message='正在连接电脑'
-   local sock,err=ws_connect(cfg.url)
+  if not exited and not exiting and (cfg.url~='' or cfg.discovery) then
+   local url=cfg.url
+   if cfg.discovery then url=discovery and discovery:take(now()) end
+   message=url and '正在连接电脑' or '正在寻找电脑'
+   local sock,err
+   if url then sock,err=ws_connect(url,{timeout=3}) end
    if sock then
     disconnect()
     ws=sock
     -- 每次重连在同一个任务内完成握手、心跳、动作发送和状态接收。
     -- 不依赖只在启动时创建一次、异常退出后无法恢复的发送协程。
     local ok=sock:send(json.encode({type='hello',version=1,token=cfg.token,config=cfg.config,
-                                   heartbeat='state-ack',device_build=46}))
+                                   heartbeat='state-ack',device_build=47}))
     local last_heartbeat=-999
     while ok and not sock:isclosed() and not exited do
      if exiting then
@@ -120,7 +125,7 @@ local function network_loop()
     if not sock:isclosed() then sock:close() end
     if ws==sock then ws=nil; disconnect() end
     message='电脑连接已断开'
-   else message='电脑连接未成功' end
+   elseif url then message='电脑连接未成功' end
   end
   copas.sleep(1)
  end
@@ -219,6 +224,10 @@ function _idle_update() resumed=true end
 
 -- 绘图独立于连接与手势，可在官方 VM 中验证所有状态。
 function _draw()
+ if discovery then
+  local ok=pcall(function() discovery:step(now(),ws~=nil) end)
+  if not ok then discovery:close() end
+ end
  local buttons={}
  for i=0,7 do buttons[i]=btn(i) end
  TMDraw({now=now(),ready=live(),phase=state.phase,title=state.title,

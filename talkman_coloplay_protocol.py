@@ -64,6 +64,14 @@ def validate_config(data):
     port = int(data.get('port', 18743))
     if not 1024 <= port <= 65535:
         raise ValueError('端口应在 1024–65535 之间。')
+    device_host = str(data.get('device_host', '')).strip()
+    if device_host:
+        device_address = ipaddress.ip_address(device_host)
+        if device_address.version != 4 or device_address.is_multicast or device_address.is_unspecified or device_address.is_reserved:
+            raise ValueError('设备 IP 应是 COLOPLAY 当前的 IPv4 地址，也可以留空。')
+    discovery = data.get('discovery', True)
+    if type(discovery) is not bool:
+        raise ValueError('自动寻找电脑应为开启或关闭。')
     supplied = data.get('bindings', {})
     bindings = {k: normalize_shortcut(supplied.get(k, v)) for k, v in list(DEFAULT_BINDINGS.items())[:8]}
     bindings.update({k: normalize_shortcut(v) for k, v in supplied.items() if k in ACTIONS})
@@ -80,6 +88,7 @@ def validate_config(data):
     if len(token) != 48 or any(c not in '0123456789abcdef' for c in token):
         raise ValueError('配对配置损坏，请重新生成。')
     return dict(host=host, port=port, enabled=bool(data.get('enabled', False)),
+                discovery=discovery, device_host=device_host,
                 token=token, bindings=bindings,
                 preferences=validate_preferences(data.get('preferences', {})))
 

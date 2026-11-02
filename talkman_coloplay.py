@@ -18,6 +18,7 @@ import regex
 from talkman_coloplay_protocol import (ACTIONS, DEFAULT_BINDINGS, Intent,
     config_id, hid_binding, save_config, validate_config, validate_preferences)
 from talkman_coloplay_server import StateServer
+from talkman_coloplay_discovery import DiscoveryService, local_addresses
 from talkman_target import is_agent_window
 from talkman_coloplay_highlight import TargetHighlight
 from talkman_coloplay_scroll import ScrollWorker, SCROLL_ACTIONS
@@ -32,6 +33,8 @@ class ColoPlayController:
         self.path = app.data_dir / 'coloplay.json'
         self.events = queue.Queue()
         self.server = None
+        self.discovery = None
+        self.discovery_error = ''
         self.peer = None
         self.active = False
         self.delivery_epoch = 0
@@ -109,17 +112,27 @@ class ColoPlayController:
     def configure(self, config):
         self.stop_service()
         self.config = validate_config(config)
+        self.discovery_error = ''
         if self.config['enabled']:
             try:
                 self.server = StateServer(self.config['host'], self.config['port'],
                     self.config['token'], config_id(self.config), self.events,
                     diagnostics_path=self.path.with_name('coloplay-connection.log'))
+                if self.config['discovery']:
+                    try:
+                        self.discovery = DiscoveryService(self.config['host'], self.config['port'],
+                            self.config['token'], config_id(self.config), self.config['device_host'])
+                    except OSError:
+                        self.discovery_error = '自动发现端口不可用，请检查其它实例或防火墙；原有连接服务仍可用。'
             except OSError as error:
                 self.app.status_var.set('COLOPLAY 服务未启动：'+str(error))
                 self.config['enabled'] = False
         self.app.window_controller.sync_hotkeys()
 
     def stop_service(self):
+        if getattr(self, 'discovery', None):
+            self.discovery.stop()
+            self.discovery = None
         self.registered.clear()
         self.peer = None
         self.intent.cancel()
@@ -640,6 +653,7 @@ class ColoPlayController:
         cfg = self.config
         lines = ['-- 本文件含本机配对口令，请勿公开上传。', 'TM_CONFIG = {',
                  f' url = "ws://{cfg["host"]}:{cfg["port"]}",',
+                 f' discovery = {str(cfg.get("discovery", True)).lower()}, discovery_port = 18744,',
                  f' token = "{cfg["token"]}", config = "{config_id(cfg)}",',
                  ' center=4, left=5, right=6, fill_ms=800, exit_ms=5000, keys={']
         for action, binding in cfg['bindings'].items():
@@ -662,18 +676,29 @@ class ColoPlayController:
         box = ttk.Frame(win, padding=24); box.pack(fill='both', expand=True)
         enabled = tk.BooleanVar(win, self.config['enabled'])
         ttk.Checkbutton(box, text='启用 COLOPLAY 状态服务', variable=enabled).grid(row=0, columnspan=2, sticky='w')
-        ttk.Label(box, text='下方配置用于旧版 Wi-Fi 卡带；纯 USB 使用单独的 USB 卡带。', style='Muted.TLabel').grid(row=1, columnspan=2, pady=(8,12))
+        ttk.Label(box, text='新版卡带只需安装一次。换网络后选择电脑当前 IP 并保存，无需重编译。', style='Muted.TLabel').grid(row=1, columnspan=2, pady=(8,12))
         fields = {}
-        addresses = sorted({x[4][0] for x in socket.getaddrinfo(socket.gethostname(), None, socket.AF_INET)} | {'127.0.0.1'})
-        for row, (name, label) in enumerate([('host','本机局域网地址'), ('port','状态端口')], 2):
+        addresses = local_addresses()
+        for row, (name, label) in enumerate([('host','本机 IP · 这台电脑'), ('port','状态端口'), ('device_host','设备 IP · 可留空')], 2):
             ttk.Label(box, text=label).grid(row=row, column=0, sticky='w')
             fields[name] = tk.StringVar(win, str(self.config[name]))
-            if name == 'host': ttk.Combobox(box, values=addresses, textvariable=fields[name], width=30).grid(row=row,column=1,pady=4)
+            if name == 'host':
+                host_row=ttk.Frame(box);host_row.grid(row=row,column=1,pady=4,sticky='ew')
+                chooser=ttk.Combobox(host_row, values=addresses, textvariable=fields[name], width=22)
+                chooser.pack(side='left')
+                def refresh_addresses():
+                    found=local_addresses();chooser.configure(values=found)
+                    if len(found)==1:fields['host'].set(found[0])
+                    note.set('已刷新电脑地址，请选择当前网卡并保存。设备 IP 填 COLOPLAY 小屏里的地址。')
+                a.button(host_row,'刷新',refresh_addresses,style='Ghost.TButton').pack(side='left',padx=4)
             else: ttk.Entry(box,textvariable=fields[name],width=32).grid(row=row,column=1,pady=4)
+        discovery=tk.BooleanVar(win,self.config['discovery'])
+        ttk.Checkbutton(box,text='自动寻找已配对电脑（需要新版卡带）',variable=discovery).grid(row=5,columnspan=2,sticky='w',pady=(8,0))
+        ttk.Label(box,text='公司网络屏蔽广播时，填写设备 IP；电脑和设备需在可互通的局域网。',style='Muted.TLabel').grid(row=6,columnspan=2,sticky='w',pady=4)
         values = {}
         keys = ttk.LabelFrame(box, text='设备快捷键 · 可滚动查看全部动作')
-        keys.grid(row=4,columnspan=2,sticky='ew',pady=(12,0))
-        canvas=tk.Canvas(keys,width=480,height=210,highlightthickness=0,bg=a.palette['bg'])
+        keys.grid(row=7,columnspan=2,sticky='ew',pady=(12,0))
+        canvas=tk.Canvas(keys,width=480,height=150,highlightthickness=0,bg=a.palette['bg'])
         canvas.pack(side='left',fill='both',expand=True)
         scrollbar=ttk.Scrollbar(keys,orient='vertical',command=canvas.yview)
         scrollbar.pack(side='right',fill='y');canvas.configure(yscrollcommand=scrollbar.set)
@@ -692,12 +717,13 @@ class ColoPlayController:
             values[action] = tk.StringVar(win,self.config['bindings'][action])
             entry=ttk.Entry(key_rows,textvariable=values[action],width=32)
             entry.grid(row=row,column=1,pady=3);entry.bind('<MouseWheel>',key_wheel)
-        note = tk.StringVar(win,'左上短按：改写／确认；长按 5 秒退出设备模式，桌面恢复完整提示。')
-        ttk.Label(box,textvariable=note,wraplength=500,style='Muted.TLabel').grid(row=5,columnspan=2,pady=12)
+        note = tk.StringVar(win,self.discovery_error or '自动发现仅用于更新连接地址；首次配对和修改按键映射仍需更新卡带。')
+        ttk.Label(box,textvariable=note,wraplength=500,style='Muted.TLabel').grid(row=8,columnspan=2,pady=12)
         def save(export=False):
             try:
-                config = validate_config(dict(enabled=enabled.get(),host=fields['host'].get(),
+                config = validate_config(dict(enabled=enabled.get(),host=fields['host'].get().strip(),
                     port=fields['port'].get(), token=self.config['token'],
+                    discovery=discovery.get(),device_host=fields['device_host'].get(),
                     bindings={**self.config['bindings'], **{k:v.get() for k,v in values.items()}}, preferences=self.preferences))
                 if set(config['bindings'].values()) & set(a.shortcuts.values()):
                     raise ValueError('设备快捷键与桌面已有快捷键冲突，请换一组。')
@@ -705,7 +731,8 @@ class ColoPlayController:
                 save_config(self.path,self.config)
                 if enabled.get() and not self.server:
                     raise ValueError('服务未启动，请检查本机地址、端口是否占用。')
-                note.set('已保存。导出后请重新编译并装入设备；正文与模型 Key 不经此连接传输。')
+                note.set(self.discovery_error or ('已保存，新版卡带会自动连接。旧卡带须先更新一次；无需反复导出。' if discovery.get()
+                    else '已保存为固定地址模式。修改 IP 后需更新卡带；推荐开启自动寻找。'))
                 if export:
                     parent = filedialog.askdirectory(parent=win, title='选择卡带导出的父目录')
                     if parent:
@@ -713,18 +740,18 @@ class ColoPlayController:
                         self.export(dest)
                         note.set('已导出到：'+str(dest))
             except (ValueError, OSError) as error: note.set(str(error))
-        actions = ttk.Frame(box); actions.grid(row=6,columnspan=2,sticky='e')
+        actions = ttk.Frame(box); actions.grid(row=9,columnspan=2,sticky='e')
         a.button(actions,'保存',save).pack(side='left',padx=4)
-        a.button(actions,'保存并导出卡带',lambda:save(True)).pack(side='left')
-        usb_actions=ttk.Frame(box);usb_actions.grid(row=7,columnspan=2,pady=(16,0),sticky='w')
+        a.button(actions,'首次配对 · 导出源码',lambda:save(True)).pack(side='left')
+        usb_actions=ttk.Frame(box);usb_actions.grid(row=10,columnspan=2,pady=(16,0),sticky='w')
         a.button(usb_actions,'连接纯 USB',self.connect_usb).pack(side='left')
         a.button(usb_actions,'断开 USB',self.disconnect_usb,style='Ghost.TButton').pack(side='left',padx=6)
         def preview_from_settings():
             close()
             self.open_simulator()
         a.button(usb_actions,'打开设备模拟器',preview_from_settings,style='Ghost.TButton').pack(side='left')
-        ttk.Label(box,text='初代需支持空中图流的固件。连接后关闭本设置窗口即可操作。',style='Muted.TLabel').grid(row=8,columnspan=2,pady=(8,0),sticky='w')
-        ttk.Label(box,textvariable=a.status_var,wraplength=500,style='Muted.TLabel').grid(row=9,columnspan=2,pady=8,sticky='w')
+        ttk.Label(box,text='纯 USB 需支持图流的固件。连接后关闭本设置窗口即可操作。',style='Muted.TLabel').grid(row=11,columnspan=2,pady=(8,0),sticky='w')
+        ttk.Label(box,textvariable=a.status_var,wraplength=500,style='Muted.TLabel').grid(row=12,columnspan=2,pady=8,sticky='w')
         def close():
             win.destroy(); a.coloplay_window=None; a.window_controller.sync_hotkeys()
         win.protocol('WM_DELETE_WINDOW',close)
