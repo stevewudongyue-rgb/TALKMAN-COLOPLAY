@@ -10,6 +10,7 @@ class RuledText(tk.Text):
 
     def __init__(self, master=None, **kwargs):
         self._auto_fit = kwargs.pop('auto_fit', False)
+        text_scale = kwargs.pop('text_scale', 1.0)
         self._fit_paused = False
         self._delivery_fit_hold = False
         self._fit_resume_job = None
@@ -19,7 +20,7 @@ class RuledText(tk.Text):
         kwargs.setdefault("spacing2", 4)
         super().__init__(master, **kwargs)
         self._fit_font = tkfont.Font(self, font=self.cget('font'))
-        self._fit_sizes = (16, 15, 14)
+        self._fit_sizes = tuple(round(size * text_scale) for size in (16, 15, 14))
         self._rule_color = "#242424"
         self._caret_color = "#ef5350"
         self._rule_widgets = []

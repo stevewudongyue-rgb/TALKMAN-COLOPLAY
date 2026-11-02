@@ -11,6 +11,7 @@ import subprocess
 import threading
 import time
 import tkinter as tk
+import tkinter.font as tkfont
 from dataclasses import replace
 from datetime import datetime
 from pathlib import Path
@@ -170,8 +171,12 @@ class TalkManApp(TranslationUIMixin, DeliveryUIMixin, ConventionsUIMixin, AIEdit
         self.ui_preferences = preferences
         requested_scale = preferences.get('ui_scale', 1.0)
         self.ui_scale = requested_scale if type(requested_scale) in (int, float) and requested_scale in (1, 1.25, 1.5) else 1.0
-        if sys.platform == 'darwin' and self.ui_scale != 1.0:
-            self.tk.call('tk', 'scaling', float(self.tk.call('tk', 'scaling')) * self.ui_scale)
+        if self.ui_scale != 1.0:
+            for name in tkfont.names(root=self):
+                font = tkfont.nametofont(name, root=self)
+                size = font.cget('size')
+                if size:
+                    font.configure(size=round(size * self.ui_scale))
         self.theme_key = preferences.get('appearance_theme', 'matrix')
         if not isinstance(self.theme_key, str) or self.theme_key not in THEMES:
             self.theme_key = 'matrix'
@@ -354,6 +359,9 @@ class TalkManApp(TranslationUIMixin, DeliveryUIMixin, ConventionsUIMixin, AIEdit
         temp.replace(self.ui_path)
         self.ui_preferences = preferences
 
+    def font_size(self, size):
+        return max(1, round(size * self.ui_scale))
+
     def text_model_ready(self):
         return self.free_service.configured if self.free_mode_var.get() else bool(self.settings.api_key)
 
@@ -382,7 +390,7 @@ class TalkManApp(TranslationUIMixin, DeliveryUIMixin, ConventionsUIMixin, AIEdit
             old.destroy()
         menu = self.window_menu = tk.Menu(self, tearoff=False, bg=COLORS['input'], fg=COLORS['text'],
                                          activebackground=COLORS['select'], activeforeground=COLORS['text'],
-                                         font=(self.fonts.ui, 11), borderwidth=1, relief='solid')
+                                         font=(self.fonts.ui, self.font_size(11)), borderwidth=1, relief='solid')
         # 菜单变量只显示勾选状态；实际偏好由现有保存流程更新。
         self.window_menu_pin = tk.BooleanVar(value=self.topmost_var.get())
         def run(command):
@@ -470,14 +478,14 @@ class TalkManApp(TranslationUIMixin, DeliveryUIMixin, ConventionsUIMixin, AIEdit
         style = ttk.Style(self)
         if style.theme_use() != "clam":
             style.theme_use("clam")
-        style.configure(".", font=(self.fonts.ui, 10), background=COLORS["bg"], foreground=COLORS["text"])
+        style.configure(".", font=(self.fonts.ui, self.font_size(10)), background=COLORS["bg"], foreground=COLORS["text"])
         style.configure("TFrame", background=COLORS["bg"])
         style.configure("Panel.TFrame", background=COLORS["input"])
         style.configure("TLabel", background=COLORS["bg"], foreground=COLORS["text"])
         style.configure("Muted.TLabel", foreground=COLORS["muted"])
-        style.configure('SettingsTitle.TLabel', font=(self.fonts.ui, 12, 'bold'), foreground=COLORS['text'])
-        style.configure('SettingsField.TLabel', font=(self.fonts.ui, 10, 'bold'), foreground=COLORS['text'])
-        style.configure('SettingsHelp.TLabel', font=(self.fonts.ui, 10), foreground=COLORS['muted'])
+        style.configure('SettingsTitle.TLabel', font=(self.fonts.ui, self.font_size(12), 'bold'), foreground=COLORS['text'])
+        style.configure('SettingsField.TLabel', font=(self.fonts.ui, self.font_size(10), 'bold'), foreground=COLORS['text'])
+        style.configure('SettingsHelp.TLabel', font=(self.fonts.ui, self.font_size(10)), foreground=COLORS['muted'])
         style.configure('SettingsGroup.TFrame', borderwidth=1, relief='solid',
                         bordercolor=COLORS['line'], lightcolor=COLORS['line'], darkcolor=COLORS['line'])
         style.configure('Settings.TSeparator', background=COLORS['line'])
@@ -657,7 +665,7 @@ class TalkManApp(TranslationUIMixin, DeliveryUIMixin, ConventionsUIMixin, AIEdit
         tools = ttk.Frame(body, padding=(0, 8, 0, 8))
         self.full_editor_tools = tools
         tools.grid(row=0, column=0, columnspan=2, sticky="ew")
-        self.editor_title = ttk.Label(tools, text="预输入", font=(self.fonts.ui, 18))
+        self.editor_title = ttk.Label(tools, text="预输入", font=(self.fonts.ui, self.font_size(18)))
         self.editor_title.pack(side="left")
         self.count_label = ttk.Label(tools, textvariable=self.count_var, style="Muted.TLabel")
         self.count_label.pack(side="left", padx=(16, 0))
@@ -697,7 +705,7 @@ class TalkManApp(TranslationUIMixin, DeliveryUIMixin, ConventionsUIMixin, AIEdit
         self.editor_surface.columnconfigure(0, weight=1)
         self.editor_surface.columnconfigure(1, minsize=8)
         self.text = RuledText(self.editor_surface, width=20, height=8, wrap="word", undo=False, auto_fit=True,
-            font=(self.fonts.ui, 16), bg=COLORS["bg"], fg=COLORS["text"],
+            text_scale=self.ui_scale, font=(self.fonts.ui, self.font_size(16)), bg=COLORS["bg"], fg=COLORS["text"],
             insertbackground=COLORS["accent"], selectbackground=COLORS["select"],
             selectforeground=COLORS["text"], exportselection=False, padx=16, pady=18,
             spacing1=4, spacing3=6, relief="flat", borderwidth=0, highlightthickness=0)
@@ -720,7 +728,7 @@ class TalkManApp(TranslationUIMixin, DeliveryUIMixin, ConventionsUIMixin, AIEdit
         for sequence in ("<MouseWheel>", "<Button-4>", "<Button-5>"):
             self.text.bind(sequence, self.editor_wheel)
         self.empty_hint = tk.Label(body, text="把想说的，先放在这里。",
-            font=(self.fonts.ui, 10), bg=COLORS["bg"], fg=COLORS["muted"], anchor="w", padx=6)
+            font=(self.fonts.ui, self.font_size(10)), bg=COLORS["bg"], fg=COLORS["muted"], anchor="w", padx=6)
         self.empty_hint.bind("<ButtonPress-1>", self.editor_clicked)
         self.empty_hint.place(in_=self.editor_hint_line, x=16, y=0, anchor="w")
         self.editor_surface.bind("<Configure>", self.layout_history, add=True)
@@ -748,7 +756,7 @@ class TalkManApp(TranslationUIMixin, DeliveryUIMixin, ConventionsUIMixin, AIEdit
                 cell.grid(row=0,column=visible_column,sticky="ew",padx=(0,12) if visible_column == 0 else 0)
                 visible_column += 1
             button = PillButton(cell,text=label,command=self.toggle_mic if mode=="insert" else None,
-                                palette=lambda:COLORS,font=(self.fonts.ui,11),
+                                palette=lambda:COLORS,font=(self.fonts.ui,self.font_size(11)),
                                 style="Accent.TButton" if mode in ("insert", "replace") else "TButton",
                                 image=self.icon_sets[self.icon_tone('Accent.TButton')]["mic"] if mode=="insert" else None)
             setattr(self,name,button)
@@ -791,7 +799,7 @@ class TalkManApp(TranslationUIMixin, DeliveryUIMixin, ConventionsUIMixin, AIEdit
 
         # 紧凑模式复用同一个正文组件，选区、光标、事务和撤销不做镜像复制。
         self.compact_header = ttk.Frame(self, padding=(14, 8, 14, 6))
-        ttk.Label(self.compact_header, text='快速输入', font=(self.fonts.ui, 11)).pack(side='left')
+        ttk.Label(self.compact_header, text='快速输入', font=(self.fonts.ui, self.font_size(11))).pack(side='left')
         self.button(self.compact_header, '收起', self.collapse_compact,
                     style='Ghost.TButton').pack(side='right')
         self.button(self.compact_header, '完整窗口 ↗', lambda: self.window_controller.reveal(focus=True),
@@ -1031,7 +1039,7 @@ class TalkManApp(TranslationUIMixin, DeliveryUIMixin, ConventionsUIMixin, AIEdit
         box.rowconfigure(2,weight=1)
         heading = ttk.Frame(box,style="Panel.TFrame")
         heading.grid(row=0,column=0,sticky="ew",pady=(0,8))
-        self.history_heading = ttk.Label(heading,text="草稿簿",style="Panel.TLabel",font=(self.fonts.ui,18))
+        self.history_heading = ttk.Label(heading,text="草稿簿",style="Panel.TLabel",font=(self.fonts.ui,self.font_size(18)))
         self.history_heading.pack(side="left")
         self.record_tab_var = tk.StringVar(value=self.record_mode)
         tabs = ttk.Frame(heading, style='Panel.TFrame')
@@ -1078,7 +1086,7 @@ class TalkManApp(TranslationUIMixin, DeliveryUIMixin, ConventionsUIMixin, AIEdit
         self.preview_widget = tk.Text(self.preview_panel,width=15,height=4,wrap="word",state="disabled",
             bg=COLORS["input"],fg=COLORS["text"],selectbackground=COLORS["select"],
             selectforeground=COLORS["text"],relief="flat",highlightthickness=0,borderwidth=0,
-            padx=8,pady=0,font=(self.fonts.ui,12),spacing3=6)
+            padx=8,pady=0,font=(self.fonts.ui,self.font_size(12)),spacing3=6)
         self.preview_widget.grid(row=0,column=0,sticky="nsew")
         ps = AutoHideScrollbar(self.preview_panel,command=self.preview_widget.yview)
         ps.grid(row=0,column=1,sticky="ns")

@@ -97,7 +97,7 @@ class AIEditMixin:
         self.text.configure(state='disabled')
         body = ttk.Frame(win, padding=(12, 4))
         body.pack(fill='both', expand=True)
-        ttk.Label(body, text='修改后 · 确认后替换', font=(self.fonts.ui, 12)).pack(anchor='w', pady=(0, 4))
+        ttk.Label(body, text='修改后 · 确认后替换', font=(self.fonts.ui, self.font_size(12))).pack(anchor='w', pady=(0, 4))
         changes, summary = review_changes(base, result)
         self.ai_review_summary = tk.StringVar(value=summary)
         explanation = ttk.Label(body, textvariable=self.ai_review_summary, style='Muted.TLabel', wraplength=260)

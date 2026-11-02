@@ -606,7 +606,7 @@ class DesktopWindowController:
         self.tab.configure(bg=a.palette['text'])
         label = ('TALK MAN  ·  展开 ' + ('▾' if self.edge == 'top' else '▴')) if self.edge in ('top', 'bottom') else 'T\nA\nL\nK\n\n展开'
         self.tab_label.configure(text=label, bg=a.palette['input'], fg=a.palette['text'],
-                                 font=(a.fonts.ui, 10), padx=4, pady=2)
+                                 font=(a.fonts.ui, a.font_size(10)), padx=4, pady=2)
         font = tkfont.Font(root=a, font=self.tab_label.cget('font'))
         lines = label.split('\n')
         minimum_size = (max(font.measure(line) for line in lines)+24,

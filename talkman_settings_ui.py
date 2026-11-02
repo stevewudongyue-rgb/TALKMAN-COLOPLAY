@@ -72,7 +72,7 @@ class SettingsPanelMixin:
         shell.pack(fill="both", expand=True)
         heading = ttk.Frame(shell)
         heading.pack(fill="x", pady=(0, 18))
-        ttk.Label(heading, text="设置", font=(self.fonts.ui, 22)).pack(side="left")
+        ttk.Label(heading, text="设置", font=(self.fonts.ui, self.font_size(22))).pack(side="left")
         def open_simulator():
             self._close_settings(win)
             self.coloplay.open_simulator()
@@ -134,7 +134,7 @@ class SettingsPanelMixin:
         self.version_window=win
         win.title('版本记录 · TALKMAN COLOPLAY');win.transient(self.settings_window)
         box=ttk.Frame(win,padding=20);box.pack(fill='both',expand=True)
-        text=tk.Text(box,wrap='word',width=54,height=18,font=(self.fonts.ui,11),
+        text=tk.Text(box,wrap='word',width=54,height=18,font=(self.fonts.ui,self.font_size(11)),
                      bg=self.palette['bg'],fg=self.palette['text'],relief='flat',padx=12,pady=12)
         bar=ttk.Scrollbar(box,command=text.yview);bar.pack(side='right',fill='y')
         text.pack(fill='both',expand=True);text.configure(yscrollcommand=bar.set)
@@ -735,7 +735,7 @@ class SettingsPanelMixin:
         ttk.Label(box, text='例如：选中“苹果”，说“改成梨”或“移到最后”。',
             style='SettingsHelp.TLabel', wraplength=560).pack(anchor='w', pady=(0, 20))
         review = self._settings_group(box, '改写结果怎么应用')
-        ttk.Style(win).configure('ReviewChoice.TRadiobutton', padding=(0, 4), font=(self.fonts.ui, 10, 'bold'))
+        ttk.Style(win).configure('ReviewChoice.TRadiobutton', padding=(0, 4), font=(self.fonts.ui, self.font_size(10), 'bold'))
         self.preview_ai_switch = ttk.Radiobutton(review, text='先看对照，确认后替换',
             variable=self.preview_ai_var, value=True, command=self.preview_preference_changed,
             style='ReviewChoice.TRadiobutton')

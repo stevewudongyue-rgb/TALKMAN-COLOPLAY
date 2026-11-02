@@ -63,7 +63,7 @@ class MacSetupGuide:
 
     def label(self, text, *, muted=False):
         widget = ttk.Label(self.body, text=text, style='Muted.TLabel' if muted else 'TLabel',
-                           wraplength=460, justify='left', font=(self.app.fonts.ui, 11))
+                           wraplength=460, justify='left', font=(self.app.fonts.ui, self.app.font_size(11)))
         widget.pack(fill='x', pady=(0, 8))
         self.wrapping.append(widget)
         return widget
@@ -88,12 +88,12 @@ class MacSetupGuide:
         self.mic_button = None
         a, p = self.app, self.app.palette
         header = ttk.Frame(self.panel, padding=(24, 18, 24, 12)); header.pack(fill='x')
-        ttk.Label(header, text='TALKMAN / MAC', font=(a.fonts.mono, 11), foreground=p['signal']).pack(side='left')
+        ttk.Label(header, text='TALKMAN / MAC', font=(a.fonts.mono, a.font_size(11)), foreground=p['signal']).pack(side='left')
         a.button(header, '稍后继续', self.close, style='Ghost.TButton').pack(side='right')
         footer = ttk.Frame(self.panel, padding=(24, 12, 24, 18)); footer.pack(side='bottom', fill='x')
         self.back = a.button(footer, '上一步', lambda: self.show(page-1), style='Ghost.TButton')
         self.back.pack(side='left'); self.back.state(['disabled'] if page == 0 else ['!disabled'])
-        ttk.Label(footer, text=f'{page+1:02d} / 06', font=(a.fonts.mono, 11), style='Muted.TLabel').pack(side='left', padx=16)
+        ttk.Label(footer, text=f'{page+1:02d} / 06', font=(a.fonts.mono, a.font_size(11)), style='Muted.TLabel').pack(side='left', padx=16)
         self.next = a.button(footer, '进入编辑' if page == 5 else '下一步',
                              self.close if page == 5 else lambda: self.show(page+1), style='Accent.TButton')
         self.next.pack(side='right')
@@ -104,10 +104,10 @@ class MacSetupGuide:
             button = a.button(rail, f'{i+1:02d}  {title}', lambda i=i: self.show(i),
                               style='Accent.TButton' if i == page else 'Ghost.TButton')
             button.pack(fill='x', pady=(0, 2)); self.rail_buttons.append(button)
-            ttk.Label(rail, textvariable=self.labels[i], style='Muted.TLabel', font=(a.fonts.ui, 9)).pack(anchor='w', padx=12, pady=(0, 10))
+            ttk.Label(rail, textvariable=self.labels[i], style='Muted.TLabel', font=(a.fonts.ui, a.font_size(9))).pack(anchor='w', padx=12, pady=(0, 10))
         self.body = ttk.Frame(layout); self.body.pack(side='left', fill='both', expand=True)
-        ttk.Label(self.body, text=TITLES[page], font=(a.fonts.ui, 22, 'bold')).pack(anchor='w', pady=(0, 8))
-        ttk.Label(self.body, textvariable=self.status, foreground=p['signal'], font=(a.fonts.ui, 11)).pack(anchor='w', pady=(0, 10))
+        ttk.Label(self.body, text=TITLES[page], font=(a.fonts.ui, a.font_size(22), 'bold')).pack(anchor='w', pady=(0, 8))
+        ttk.Label(self.body, textvariable=self.status, foreground=p['signal'], font=(a.fonts.ui, a.font_size(11))).pack(anchor='w', pady=(0, 10))
         getattr(self, f'page_{page}')()
         feedback = ttk.Label(self.body, textvariable=self.feedback, style='Muted.TLabel', wraplength=460, justify='left')
         feedback.pack(fill='x', pady=(4, 0)); self.wrapping.append(feedback)
