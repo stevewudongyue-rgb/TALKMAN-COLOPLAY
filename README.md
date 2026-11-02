@@ -6,18 +6,18 @@
 
 ## 下载
 
-**Mac 测试版 0.1.28.49 · 2026-11-02**（Windows 保持 0.1.28.47）
+**Mac 测试版 0.1.28.50 · 2026-11-02**（Windows 保持 0.1.28.47）
 
-本版修复 Mac 豆包和 Perplexity 未出现在目标列表的问题。根据用户诊断加入两个应用的精确标识；豆包未返回启动时间时，改用进程启动时间核对身份。真实输入框聚焦和填入仍需在这两个应用上验收。
+本版修复 Mac 小屏已高亮豆包／ZCode，但松开右下无法选定的问题。松手直接确认预选目标，桌面显示“已选目标”；真正填入时再聚焦并校验窗口和输入框。保留上一版豆包／Perplexity 的识别修复，实体旋钮及真实 Agent 填入仍需实测。
 
 | 安装文件 | 适用设备 |
 |---|---|
 | [Windows 安装器](https://github.com/stevewudongyue-rgb/TALKMAN-COLOPLAY/releases/download/coloplay-v0.1.28.47/TalkMan-COLOPLAY-0.1.28.47-Windows-x64-Setup.exe) | Windows 10／11 x64 |
-| [Mac 安装镜像 DMG](https://github.com/stevewudongyue-rgb/TALKMAN-COLOPLAY/releases/download/coloplay-v0.1.28.49/TalkMan-COLOPLAY-0.1.28.49-Mac-AppleSilicon.dmg) | Apple 芯片 M1 及以后，macOS 14 及以上 |
+| [Mac 安装镜像 DMG](https://github.com/stevewudongyue-rgb/TALKMAN-COLOPLAY/releases/download/coloplay-v0.1.28.50/TalkMan-COLOPLAY-0.1.28.50-Mac-AppleSilicon.dmg) | Apple 芯片 M1 及以后，macOS 14 及以上 |
 | [Windows 便携版](https://github.com/stevewudongyue-rgb/TALKMAN-COLOPLAY/releases/download/coloplay-v0.1.28.47/TalkMan-COLOPLAY-0.1.28.47-Windows-x64-Portable.zip) | 完整解压运行，保留 `_internal` 文件夹 |
 | [Windows 校验值](https://github.com/stevewudongyue-rgb/TALKMAN-COLOPLAY/releases/download/coloplay-v0.1.28.47/TalkMan-SHA256SUMS.txt) | SHA-256 |
 
-[Mac 本版发布说明及校验值](https://github.com/stevewudongyue-rgb/TALKMAN-COLOPLAY/releases/tag/coloplay-v0.1.28.49) · [Windows 发布说明](https://github.com/stevewudongyue-rgb/TALKMAN-COLOPLAY/releases/tag/coloplay-v0.1.28.47)
+[Mac 本版发布说明及校验值](https://github.com/stevewudongyue-rgb/TALKMAN-COLOPLAY/releases/tag/coloplay-v0.1.28.50) · [Windows 发布说明](https://github.com/stevewudongyue-rgb/TALKMAN-COLOPLAY/releases/tag/coloplay-v0.1.28.47)
 
 ## 开始使用
 
@@ -60,6 +60,8 @@ Mac 首次连接设备允许“本地网络”，录音允许麦克风，填入 
 
 填入后的 **5 秒内，左上发送、右上取消**。左下可开启新录入，右下＋左下可开启新指令，均取消旧的发送机会。
 
+Mac 选目标时保持 TalkMan 当前界面，松开右下后检查桌面“已选目标：豆包／ZCode”。长按旋钮填入时才聚焦目标 Agent；如窗口身份或输入框无法确认，会提示处理。
+
 **设置 → COLOPLAY** 提供连接配置、设备模拟器和图解教程；教程说明可悬停查看动画。支持骇客绿屏与 Nothing 黑白主题。
 
 ## 换网络，只在桌面改地址
@@ -83,6 +85,6 @@ Mac 首次连接设备允许“本地网络”，录音允许麦克风，填入 
 
 ## 验证范围
 
-Windows 两次覆盖安装、测试 Key／历史／配对保留与成品检查通过。Mac 在 Apple 芯片环境通过 208 项回归、成品启动及 DMG 挂载检查。官方完整卡带模拟器用同一 ROM 在两个电脑地址间断线后自动重连，每个地址持续约 15 秒、各 17 次心跳。
+Windows 两次覆盖安装、测试 Key／历史／配对保留与成品检查通过。Mac 0.1.28.50 在 Apple 芯片环境通过 321 项回归（无跳过）、成品启动、签名完整性及 DMG 挂载检查。新增模拟完整旋钮预选与松手确认，覆盖豆包／ZCode 交替选择。官方完整卡带模拟器用同一 ROM 在两个电脑地址间断线后自动重连，每个地址持续约 15 秒、各 17 次心跳。
 
 公司局域网与实体 COLOPLAY 的换网、长时间连接仍待实测；上述模拟器结果不代表真机已验收。真实麦克风与 Agent 操作需在目标电脑测试。
