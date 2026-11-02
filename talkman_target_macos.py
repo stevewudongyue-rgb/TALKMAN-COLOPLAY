@@ -6,8 +6,10 @@ from __future__ import annotations
 
 from dataclasses import dataclass, replace
 from contextlib import nullcontext
+from datetime import datetime
 from functools import wraps
 import os
+import subprocess
 import sys
 import time
 from typing import Any, Iterable
@@ -31,8 +33,9 @@ _BUNDLE_IDS = {
     "com.brave.browser", "company.thebrowser.browser", "org.mozilla.firefox",
     "com.trae.app", "com.trae.ide", "com.trae.ide.cn",
     "dev.zcode.app",
+    "ai.perplexity.macv3", "com.bot.pc.doubao",
 }
-_APP_NAMES = {"codex", "zcode", "chatgpt", "claude", "cursor", "trae", "trae cn", "豆包", "doubao"}
+_APP_NAMES = {"codex", "zcode", "chatgpt", "claude", "cursor", "trae", "trae cn", "豆包", "doubao", "perplexity"}
 _EXCLUDED_INPUT = (
     "search", "address", "omnibox", "terminal", "console", "password",
     "搜索", "地址栏", "终端", "密码", "查找",
@@ -45,9 +48,9 @@ _MAIN_INPUT = (
 _AGENT_INPUT = ("prompt", "composer", "message", "chat", "输入", "消息", "任务", "随心")
 _UNLABELLED_AGENT_BUNDLES = {
     "com.openai.codex", "com.openai.chat", "com.openai.chatgpt",
-    "com.anthropic.claudefordesktop", "com.anthropic.claude",
+    "com.anthropic.claudefordesktop", "com.anthropic.claude", "ai.perplexity.macv3",
 }
-_UNLABELLED_AGENT_NAMES = {"codex", "chatgpt", "claude", "豆包", "doubao"}
+_UNLABELLED_AGENT_NAMES = {"codex", "chatgpt", "claude", "豆包", "doubao", "perplexity"}
 _NON_CHAT_INPUT = (
     "code", "source", "filename", "file name", "filter", "command", "url",
     "代码", "源码", "文件名", "路径", "筛选", "命令", "普通字段",
@@ -86,17 +89,34 @@ class _NativeAPI:
     def application(self, pid: int) -> Any:
         return self.appkit.NSRunningApplication.runningApplicationWithProcessIdentifier_(pid)
 
+    @staticmethod
+    def _process_started(pid: int) -> float | None:
+        # Some Mac apps omit launchDate; ps still provides a start time to detect PID reuse.
+        try:
+            result = subprocess.run(["/bin/ps", "-p", str(pid), "-o", "lstart="],
+                                    capture_output=True, text=True, timeout=1,
+                                    env={**os.environ, "LC_ALL": "C"}, check=False)
+            if result.returncode != 0:
+                return None
+            return datetime.strptime(result.stdout.strip(), "%a %b %d %H:%M:%S %Y").timestamp()
+        except (OSError, ValueError, subprocess.TimeoutExpired):
+            return None
+
     def app_info(self, app: Any) -> dict[str, Any]:
         date = app.launchDate()
         bundle = str(app.bundleIdentifier() or "")
+        name = str(app.localizedName() or "")
         url = app.bundleURL()
         policy = int(app.activationPolicy())
+        started = float(date.timeIntervalSince1970()) if date else None
+        if started is None and policy == 0 and (bundle.casefold() in _BUNDLE_IDS or name.strip().casefold() in _APP_NAMES):
+            started = self._process_started(int(app.processIdentifier()))
         return {
             "pid": int(app.processIdentifier()),
-            "name": str(app.localizedName() or ""),
+            "name": name,
             "identity": bundle or (str(url.path()) if url else ""),
             "bundle": bundle,
-            "started": float(date.timeIntervalSince1970()) if date else None,
+            "started": started,
             "regular": policy == 0,
             "activation_policy": policy,
             "terminated": bool(app.isTerminated()),

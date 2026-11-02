@@ -133,6 +133,45 @@ class MacTargetTests(unittest.TestCase):
             self.backend.list_windows()
         self.api.applications.assert_not_called()
 
+    def test_native_launch_date_fallback_reads_exact_process_start(self):
+        native = target._NativeAPI.__new__(target._NativeAPI)
+        app = Mock()
+        app.launchDate.return_value = None
+        app.bundleIdentifier.return_value = 'com.bot.pc.doubao'
+        app.bundleURL.return_value = None
+        app.activationPolicy.return_value = 0
+        app.processIdentifier.return_value = 5314
+        app.localizedName.return_value = '豆包'
+        app.isTerminated.return_value = False
+        with patch.object(target.subprocess, 'run', return_value=SimpleNamespace(
+                returncode=0, stdout='Mon Nov  2 08:31:12 2026\n')) as run:
+            info = native.app_info(app)
+        self.assertEqual(info['started'], target.datetime(2026, 11, 2, 8, 31, 12).timestamp())
+        self.assertEqual(run.call_args.args[0], ['/bin/ps', '-p', '5314', '-o', 'lstart='])
+
+    def test_missing_process_start_still_blocks_target(self):
+        native = target._NativeAPI.__new__(target._NativeAPI)
+        with patch.object(target.subprocess, 'run', return_value=SimpleNamespace(returncode=1, stdout='')):
+            self.assertIsNone(native._process_started(5314))
+        with patch.object(target.subprocess, 'run', side_effect=target.subprocess.TimeoutExpired('ps', 1)):
+            self.assertIsNone(native._process_started(5314))
+        self.app.update(name='豆包', bundle='com.bot.pc.doubao', identity='com.bot.pc.doubao', started=None)
+        self.assertEqual(self.backend.list_windows(), [])
+
+    def test_background_apps_do_not_spawn_process_lookup(self):
+        native = target._NativeAPI.__new__(target._NativeAPI)
+        app = Mock()
+        app.launchDate.return_value = None
+        app.bundleIdentifier.return_value = 'com.bot.pc.doubao.browser.helper'
+        app.bundleURL.return_value = None
+        app.activationPolicy.return_value = 1
+        app.processIdentifier.return_value = 5386
+        app.localizedName.return_value = 'Doubao Browser Helper'
+        app.isTerminated.return_value = False
+        with patch.object(native, '_process_started') as lookup:
+            self.assertIsNone(native.app_info(app)['started'])
+            lookup.assert_not_called()
+
     def test_permission_revoked_before_fill_does_not_touch_clipboard(self):
         self.api.allowed = False
         with self.assertRaisesRegex(target.TargetError, "辅助功能"):
@@ -200,6 +239,24 @@ class MacTargetTests(unittest.TestCase):
                 self.assertEqual(len(windows), 1)
                 self.assertEqual(windows[0].app, name)
                 self.assertIsNotNone(self.backend.validate_window(windows[0]))
+
+    def test_diagnostic_doubao_and_perplexity_bundle_ids_are_listed(self):
+        for name, bundle in (("豆包", "com.bot.pc.doubao"),
+                             ("Perplexity", "ai.perplexity.macv3")):
+            with self.subTest(name=name):
+                self.app.update(name=name, bundle=bundle, identity=bundle)
+                windows = self.backend.list_windows()
+                self.assertEqual(len(windows), 1)
+                self.assertEqual(windows[0].app, name)
+                self.assertIsNotNone(self.backend.validate_window(windows[0]))
+
+    def test_perplexity_helper_and_doubao_browser_remain_excluded(self):
+        for name, bundle in (("perplexityd", "ai.perplexity.macv3.perplexityd"),
+                             ("Perplexity Graphics and Media", "com.apple.WebKit.GPU"),
+                             ("豆包浏览器", "com.bot.pc.doubao.browser")):
+            with self.subTest(name=name):
+                self.app.update(name=name, bundle=bundle, identity=bundle)
+                self.assertEqual(self.backend.list_windows(), [])
 
     def test_doubao_name_does_not_allow_helpers_or_similarly_named_apps(self):
         for name in ("Doubao Helper", "Doubao Helper (Renderer)", "豆包助手", "DoubaoOther"):
