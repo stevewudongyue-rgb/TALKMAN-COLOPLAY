@@ -14,6 +14,10 @@ DISCOVERY_PORT = 18744
 PROTOCOL = 'TMCP_DISCOVER_1'
 
 
+def pairing_id(token):
+    return hashlib.sha1(('TMCP_PAIR_1\n' + token).encode('ascii')).hexdigest()[:16]
+
+
 def local_addresses():
     """路由探测只调用 UDP connect 获取网卡地址，不向外发送数据。"""
     addresses = set()
@@ -55,7 +59,7 @@ def response(data, token, config, host, port):
     if not isinstance(query, dict) or query.get('protocol') != PROTOCOL or query.get('type') != 'discover':
         return None
     nonce = query.get('nonce')
-    if query.get('config') != config or not isinstance(nonce, str) or not re.fullmatch('[0-9a-f]{32}', nonce):
+    if query.get('config') != config or query.get('pair') != pairing_id(token) or not isinstance(nonce, str) or not re.fullmatch('[0-9a-f]{32}', nonce):
         return None
     return json.dumps(dict(protocol=PROTOCOL, type='endpoint', config=config, nonce=nonce,
                            host=host, port=port, proof=proof(token, nonce, config, host, port))).encode('ascii')
@@ -84,7 +88,7 @@ class DiscoveryService:
         self.thread.start()
 
     def run(self):
-        beacon = json.dumps(dict(protocol=PROTOCOL, type='beacon', config=self.config)).encode('ascii')
+        beacon = json.dumps(dict(protocol=PROTOCOL, type='beacon', config=self.config, pair=pairing_id(self.token))).encode('ascii')
         sent_at = bucket = 0
         count = 0
         while not self.stop_event.is_set():

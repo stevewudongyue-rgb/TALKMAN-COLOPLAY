@@ -10,7 +10,7 @@ import unittest
 from unittest.mock import patch
 
 from lupa.lua54 import LuaRuntime
-from talkman_coloplay_discovery import DiscoveryService, PROTOCOL, proof, response
+from talkman_coloplay_discovery import DiscoveryService, PROTOCOL, proof, response, pairing_id
 from talkman_coloplay_protocol import validate_config, config_id
 from talkman_coloplay_server import StateServer
 from websockets.sync.client import connect
@@ -60,7 +60,7 @@ def feed(lua, device, data, host='192.168.110.57', t=1000, connected=False, port
 
 
 def beacon(lua, device, host='192.168.110.57', t=1000):
-    feed(lua,device,json.dumps(dict(protocol=PROTOCOL,type='beacon',config=CONFIG)).encode(),host,t)
+    feed(lua,device,json.dumps(dict(protocol=PROTOCOL,type='beacon',config=CONFIG,pair=pairing_id(TOKEN))).encode(),host,t)
     return json.loads(lua.globals()[b'outgoing'][len(lua.globals()[b'outgoing'])][1])
 
 
@@ -88,6 +88,9 @@ class DiscoveryTests(unittest.TestCase):
         for failure in ('wrong-key','wrong-source','expired','wrong-nonce','wrong-port'):
             lua,d=lua_device();q=beacon(lua,d)
             reply=response(json.dumps(q).encode(), 'b'*48 if failure=='wrong-key' else TOKEN, CONFIG,'192.168.110.57',18743)
+            if failure=='wrong-key':
+                q['pair']=pairing_id('b'*48)
+                reply=response(json.dumps(q).encode(),'b'*48,CONFIG,'192.168.110.57',18743)
             if failure=='wrong-nonce':
                 obj=json.loads(reply);obj['nonce']='f'*32;reply=json.dumps(obj).encode()
             feed(lua,d,reply,'192.168.110.99' if failure=='wrong-source' else '192.168.110.57',
@@ -106,9 +109,18 @@ class DiscoveryTests(unittest.TestCase):
 
     def test_active_connection_ignores_other_hosts(self):
         lua,d=lua_device()
-        raw=json.dumps(dict(protocol=PROTOCOL,type='beacon',config=CONFIG)).encode()
+        raw=json.dumps(dict(protocol=PROTOCOL,type='beacon',config=CONFIG,pair=pairing_id(TOKEN))).encode()
         feed(lua,d,raw,connected=True)
         self.assertEqual(len(lua.globals()[b'outgoing']),0)
+
+    def test_other_computers_beacons_do_not_block_paired_computer(self):
+        lua,d=lua_device()
+        foreign=json.dumps(dict(protocol=PROTOCOL,type='beacon',config=CONFIG,pair=pairing_id('b'*48))).encode()
+        for t in range(100,1000,100):feed(lua,d,foreign,host='192.168.110.99',t=t)
+        self.assertEqual(len(lua.globals()[b'outgoing']),0)
+        q=beacon(lua,d)
+        feed(lua,d,response(json.dumps(q).encode(),TOKEN,CONFIG,'192.168.110.57',18743),t=1100)
+        self.assertIsNotNone(d[b'take'](d,1200))
 
     def test_real_udp_responder_then_websocket_on_discovered_address(self):
         state=StateServer('127.0.0.1',0,TOKEN,CONFIG,queue.Queue())
@@ -116,7 +128,7 @@ class DiscoveryTests(unittest.TestCase):
         try:
             with socket.socket(socket.AF_INET,socket.SOCK_DGRAM) as device:
                 device.settimeout(2)
-                query=dict(protocol=PROTOCOL,type='discover',config=CONFIG,nonce='1'*32)
+                query=dict(protocol=PROTOCOL,type='discover',config=CONFIG,nonce='1'*32,pair=pairing_id(TOKEN))
                 device.sendto(json.dumps(query).encode(),service.socket.getsockname())
                 data,source=device.recvfrom(1024);answer=json.loads(data)
                 self.assertEqual(answer['host'],source[0])

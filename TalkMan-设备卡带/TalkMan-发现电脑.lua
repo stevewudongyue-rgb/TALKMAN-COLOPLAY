@@ -29,6 +29,7 @@ local function same(a,b)
 end
 function TMDiscovery(cfg)
  local json=require('cjson_safe')
+ local identity=sha1sum and hex(sha1sum('TMCP_PAIR_1\n'..cfg.token)):sub(1,16)
  local self={sock=nil,url=nil,until_at=0,query=nil,retry_at=0,last_query=-9999}
  function self:close()
   if self.sock then pcall(function() self.sock:close() end) end
@@ -50,13 +51,13 @@ function TMDiscovery(cfg)
    if not connected and type(raw)=='string' and #raw<=1024 and safe_host(addr) then
     local v=json.decode(raw)
     if type(v)=='table' and v.protocol==DISCOVERY_PROTOCOL and v.config==cfg.config then
-     if v.type=='beacon' and port==(cfg.discovery_port or 18744) and not self.query and t-self.last_query>=750 then
+     if v.type=='beacon' and v.pair==identity and port==(cfg.discovery_port or 18744) and not self.query and t-self.last_query>=750 then
       local nonce={}
       for i=1,16 do nonce[i]=string.format('%02x',math.random(0,255)) end
       nonce=table.concat(nonce)
       self.last_query=t
       self.query={nonce=nonce,host=addr,port=port,until_at=t+2000}
-      self.sock:sendto(json.encode({protocol=DISCOVERY_PROTOCOL,type='discover',config=cfg.config,nonce=nonce}),addr,port)
+      self.sock:sendto(json.encode({protocol=DISCOVERY_PROTOCOL,type='discover',config=cfg.config,pair=identity,nonce=nonce}),addr,port)
      elseif v.type=='endpoint' and self.query and v.nonce==self.query.nonce and addr==self.query.host and port==self.query.port
        and v.host==addr and type(v.port)=='number' and v.port%1==0 and v.port>=1024 and v.port<=65535
        and same(v.proof,TMDiscoveryProof(cfg.token,v.nonce,cfg.config,v.host,v.port)) then

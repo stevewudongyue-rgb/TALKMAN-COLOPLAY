@@ -40,6 +40,7 @@ INFO_PLIST = {
     "LSMinimumSystemVersion": "14.0",
     "NSHighResolutionCapable": True,
     "NSMicrophoneUsageDescription": "Talk Man 使用麦克风录制你主动输入的语音，并发送到已配置的模型服务转换为文字。",
+    "NSLocalNetworkUsageDescription": "用于在同一局域网寻找已配对的 COLOPLAY，连接按钮控制与设备状态。",
 }
 
 
@@ -186,7 +187,7 @@ def make_disk_image(app: Path, *, test_build: bool = False) -> Path:
         shortcut.symlink_to("/Applications", target_is_directory=True)
     instructions = (
         "把 TALKMAN COLOPLAY.app 拖到 Applications，再从“应用程序”打开。\n"
-        "无须安装 Python。首次录音允许麦克风；需要填入 Agent 时再开启辅助功能。\n"
+        "无须安装 Python。连接设备时允许本地网络；首次录音允许麦克风；需要填入 Agent 时再开启辅助功能。\n"
         "在设置的“Mac 授权”页可检测权限并直接打开系统设置。\n")
     if test_build:
         instructions += (
