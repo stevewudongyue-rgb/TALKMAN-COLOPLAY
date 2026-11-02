@@ -118,6 +118,7 @@ $exe = Join-Path $dist 'TalkMan\TalkMan.exe'
 if (-not (Test-Path -LiteralPath $exe)) {
     throw "The expected executable was not found: $exe"
 }
+Copy-Item -LiteralPath (Join-Path $PSScriptRoot 'TalkMan-安装说明.txt') -Destination (Join-Path $dist 'TalkMan\TalkMan-安装说明.txt') -Force
 $requiredTkFiles = @(
     (Join-Path $dist 'TalkMan\_internal\_tkinter.pyd'),
     (Join-Path $dist 'TalkMan\_internal\tcl86t.dll'),
