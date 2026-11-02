@@ -6,16 +6,16 @@
 
 ## 下载
 
-**测试版 0.1.28.47 · 2026-11-02**
+**Mac 测试版 0.1.28.48 · 2026-11-02**（Windows 保持 0.1.28.47）
 
 | 安装文件 | 适用设备 |
 |---|---|
 | [Windows 安装器](https://github.com/stevewudongyue-rgb/TALKMAN-COLOPLAY/releases/download/coloplay-v0.1.28.47/TalkMan-COLOPLAY-0.1.28.47-Windows-x64-Setup.exe) | Windows 10／11 x64 |
-| [Mac 安装镜像 DMG](https://github.com/stevewudongyue-rgb/TALKMAN-COLOPLAY/releases/download/coloplay-v0.1.28.47/TalkMan-COLOPLAY-0.1.28.47-Mac-AppleSilicon.dmg) | Apple 芯片 M1 及以后，macOS 14 及以上 |
+| [Mac 安装镜像 DMG](https://github.com/stevewudongyue-rgb/TALKMAN-COLOPLAY/releases/download/coloplay-v0.1.28.48/TalkMan-COLOPLAY-0.1.28.48-Mac-AppleSilicon.dmg) | Apple 芯片 M1 及以后，macOS 14 及以上 |
 | [Windows 便携版](https://github.com/stevewudongyue-rgb/TALKMAN-COLOPLAY/releases/download/coloplay-v0.1.28.47/TalkMan-COLOPLAY-0.1.28.47-Windows-x64-Portable.zip) | 完整解压运行，保留 `_internal` 文件夹 |
-| [校验值](https://github.com/stevewudongyue-rgb/TALKMAN-COLOPLAY/releases/download/coloplay-v0.1.28.47/TalkMan-SHA256SUMS.txt) | SHA-256 |
+| [Windows 校验值](https://github.com/stevewudongyue-rgb/TALKMAN-COLOPLAY/releases/download/coloplay-v0.1.28.47/TalkMan-SHA256SUMS.txt) | SHA-256 |
 
-[本版发布说明](https://github.com/stevewudongyue-rgb/TALKMAN-COLOPLAY/releases/tag/coloplay-v0.1.28.47)
+[Mac 本版发布说明及校验值](https://github.com/stevewudongyue-rgb/TALKMAN-COLOPLAY/releases/tag/coloplay-v0.1.28.48) · [Windows 发布说明](https://github.com/stevewudongyue-rgb/TALKMAN-COLOPLAY/releases/tag/coloplay-v0.1.28.47)
 
 ## 开始使用
 
@@ -27,6 +27,18 @@
 Mac 首次连接设备允许“本地网络”，录音允许麦克风，填入 Agent 时开启辅助功能。此 DMG 是未公证测试版；若系统阻止，尝试打开后到 **系统设置 → 隐私与安全性 → 仍要打开**，无需关闭系统安全保护。Intel Mac 暂不支持。
 
 联网时，主动录制的音频及待处理文字会发给在线服务。免费服务使用 SenseVoiceSmall 和星辰 Xing4.0-29B，受额度及服务策略限制。推荐长期使用者在 **设置 → 模型连接** 填入自己的千问 API Key，再关闭免费服务；按自己的账户计费。
+
+## Mac 首次使用引导
+
+首次打开会在主窗口内显示六步引导：**安装位置 → 麦克风 → 语音服务 → 设备连接 → Agent 授权 → 开始使用**。
+
+- 直接申请麦克风授权、打开对应系统设置；返回后自动检查实际状态。引导不会自动录音。
+- 默认免费语音和星辰改写，也可进入模型设置填写自己的千问 Key；保留已有服务选择与凭证。
+- 设备页直接刷新 Mac IP、填写可选设备 IP、保存并连接。引导会区分模拟器与真实连接；本地网络是否授权需在系统设置查看。
+- 辅助功能用于填入其他应用；只编辑或复制文字可以跳过。设备不在手边也能先使用桌面程序。
+- “稍后继续”保留步骤。在 **设置 → 新手引导** 继续，最后可查看四键与旋钮图解，再进入正文试录。
+
+此版只更新 Mac 客户端，**沿用 .47 配对卡带，无需再更新 ROM**。第一次仍须从 DMG 拖入“应用程序”；若系统阻止测试版，按下方说明放行。首次新电脑配对仍需安装对应卡带，引导不绕过系统授权，也不把源码导出当作已安装。
 
 ## 设备操作
 
