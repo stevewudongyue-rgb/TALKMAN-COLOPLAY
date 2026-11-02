@@ -1,6 +1,7 @@
 """不录音、不联网：验证语音操作对实际 Tk 编辑器的事务边界。"""
 import tempfile
 import gc
+import sys
 import tkinter as tk
 import unittest
 from types import SimpleNamespace
@@ -81,6 +82,22 @@ class EditorTests(unittest.TestCase):
         self.app.poll_events()
         self.app.after_cancel(self.app.poll_job)
         self.app.poll_job=None
+
+    @unittest.skipUnless(sys.platform == 'darwin', 'Mac 界面缩放')
+    def test_mac_ui_scale_is_loaded_before_editor_fonts(self):
+        baseline = float(self.app.tk.call('tk', 'scaling'))
+        baseline_line = self.app.text._fit_font.metrics('linespace')
+        with tempfile.TemporaryDirectory(prefix='TalkMan-scale-') as folder:
+            Path(folder, 'interface.json').write_text('{"free_mode":false,"ui_scale":1.5}', encoding='utf-8')
+            scaled = TalkManApp(Path(folder), session_factory=FakeVoice,
+                                file_session_factory=FakeVoice, client_factory=FakeClient,
+                                desktop_services=False)
+            try:
+                self.assertAlmostEqual(float(scaled.tk.call('tk', 'scaling')), baseline * 1.5, delta=0.05)
+                self.assertGreater(scaled.text._fit_font.metrics('linespace'), baseline_line)
+                self.assertEqual(scaled.ui_scale, 1.5)
+            finally:
+                scaled.close_app()
 
     def emit(self,kind,value):
         FakeVoice.sessions[-1].emit(kind,value)

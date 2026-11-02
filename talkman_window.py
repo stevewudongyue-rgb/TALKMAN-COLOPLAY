@@ -322,6 +322,9 @@ class DesktopWindowController:
 
     def apply_preferences(self):
         self.app.attributes('-topmost', self.app.topmost_var.get() or self.compact)
+        settings = getattr(self.app, 'settings_window', None)
+        if settings and settings.winfo_exists():
+            self.app._raise_settings_window(settings)
         self.app.pin_button.configure(text='已置顶 ▾' if self.app.topmost_var.get() else '置顶 ▾')
         if not self.app.edge_hide_var.get():
             self.undock(announce=False)

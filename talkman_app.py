@@ -168,6 +168,10 @@ class TalkManApp(TranslationUIMixin, DeliveryUIMixin, ConventionsUIMixin, AIEdit
             preferences = {}
             magnifier_enabled = False
         self.ui_preferences = preferences
+        requested_scale = preferences.get('ui_scale', 1.0)
+        self.ui_scale = requested_scale if type(requested_scale) in (int, float) and requested_scale in (1, 1.25, 1.5) else 1.0
+        if sys.platform == 'darwin' and self.ui_scale != 1.0:
+            self.tk.call('tk', 'scaling', float(self.tk.call('tk', 'scaling')) * self.ui_scale)
         self.theme_key = preferences.get('appearance_theme', 'matrix')
         if not isinstance(self.theme_key, str) or self.theme_key not in THEMES:
             self.theme_key = 'matrix'
@@ -1928,7 +1932,8 @@ class TalkManApp(TranslationUIMixin, DeliveryUIMixin, ConventionsUIMixin, AIEdit
                 self.target_button.state(["disabled"] if self.busy else ["!disabled"])
                 self.refresh_compact_controls()
                 self.finish_normal_fill(state, value)
-                if kind == 'target_fill_device': self.coloplay.finish_device_fill(token)
+                if token is not None:
+                    self.coloplay.finish_device_fill(token)
             elif kind in ('target_send', 'target_send_device'):
                 self.target_filling = False
                 self.finish_target_fill(state, value)
@@ -2279,7 +2284,7 @@ class TalkManApp(TranslationUIMixin, DeliveryUIMixin, ConventionsUIMixin, AIEdit
         self.target_picker.close()
         self.refresh_compact_controls()
         self.status_var.set("正在聚焦目标输入框并填入文字；不会自动发送…")
-        device_epoch = self.coloplay.delivery_epoch if device_confirm else None
+        device_epoch = self.coloplay.delivery_epoch if self.coloplay.active else None
         callback = lambda state, message: self.events.put(("target_fill_device" if device_confirm else "target_fill", device_epoch, state, message))
         if paste_only:
             target = self.target_controller.selected

@@ -5,7 +5,7 @@ import unittest
 from unittest.mock import Mock, patch
 from talkman_coloplay_preview import LocalDeviceSession, DeviceRuntime
 from talkman_coloplay_usb import display_matches
-from talkman_target import TargetWindow, TargetError
+from talkman_target import FillReceipt, TargetWindow, TargetError
 import test_talkman_coloplay as fixtures
 import test_talkman_coloplay_revision42 as previous
 import test_talkman_delivery_confirm as delivery
@@ -48,6 +48,73 @@ class Interaction43Tests(unittest.TestCase):
     act=previous.InteractionTests.act
     drain=previous.InteractionTests.drain
     prepare_send=previous.InteractionTests.prepare_send
+
+    def test_desktop_fill_offers_device_send_only_with_verified_receipt(self):
+        a,d=self.app,self.device
+        a.set_text('待填入文字');a.target_controller.close()
+        target=TargetWindow(1,2,'测试目标','隔离','test.exe')
+        a.target_controller=Mock(selected=target,windows=[target])
+        d.set_active(True)
+        a.fill_to_target()
+        callback=a.target_controller.fill_with_receipt.call_args.args[1]
+        callback('ok',FillReceipt('已填入','待填入文字','测试目标','隔离','2026-11-03',send_token='verified'))
+        self.drain()
+        self.assertTrue(d.device_send_pending())
+        self.assertEqual(d.snapshot()['labels']['ai'],'发送')
+        self.assertGreater(d.snapshot()['send_seconds'],0)
+        a.target_controller.send_filled.assert_not_called()
+        a.target_controller.selected=TargetWindow(3,4,'另一个','隔离','other.exe')
+        self.assertFalse(d.device_send_pending())
+        self.assertIsNone(a.pending_delivery)
+        a.target_controller.selected=target
+        a.fill_to_target()
+        callback=a.target_controller.fill_with_receipt.call_args.args[1]
+        callback('ok',FillReceipt('已填入','待填入文字','测试目标','隔离','2026-11-03',send_token='again'))
+        self.drain()
+        a.pending_delivery['expires']=time.monotonic()-1
+        self.assertFalse(d.device_send_pending())
+        a.set_text('正文已改变')
+        self.assertFalse(d.device_send_pending())
+
+    def test_desktop_fill_without_safe_token_does_not_offer_device_send(self):
+        a,d=self.app,self.device
+        a.set_text('待填入文字');a.target_controller.close()
+        target=TargetWindow(1,2,'测试目标','隔离','test.exe')
+        a.target_controller=Mock(selected=target,windows=[target])
+        d.set_active(True)
+        a.fill_to_target()
+        callback=a.target_controller.fill_with_receipt.call_args.args[1]
+        callback('ok',FillReceipt('已填入','待填入文字','测试目标','隔离','2026-11-03'))
+        self.drain()
+        self.assertFalse(d.device_send_pending())
+        self.assertIsNone(a.pending_delivery)
+        self.assertEqual(d.snapshot()['send_seconds'],0)
+
+    def test_desktop_fill_disconnected_before_receipt_does_not_offer_send(self):
+        a,d=self.app,self.device
+        a.set_text('待填入文字');a.target_controller.close()
+        target=TargetWindow(1,2,'测试目标','隔离','test.exe')
+        a.target_controller=Mock(selected=target,windows=[target])
+        d.set_active(True)
+        a.fill_to_target()
+        callback=a.target_controller.fill_with_receipt.call_args.args[1]
+        d.set_active(False)
+        callback('ok',FillReceipt('已填入','待填入文字','测试目标','隔离','2026-11-03',send_token='verified'))
+        self.drain()
+        self.assertIsNone(a.pending_delivery)
+        a.target_controller.send_filled.assert_not_called()
+
+    def test_desktop_fill_failure_does_not_offer_device_send(self):
+        a,d=self.app,self.device
+        a.set_text('待填入文字');a.target_controller.close()
+        target=TargetWindow(1,2,'测试目标','隔离','test.exe')
+        a.target_controller=Mock(selected=target,windows=[target])
+        d.set_active(True)
+        a.fill_to_target()
+        a.target_controller.fill_with_receipt.call_args.args[1]('error','目标不可用')
+        self.drain()
+        self.assertIsNone(a.pending_delivery)
+        self.assertFalse(d.device_send_pending())
 
     def test_confirmation_survives_knob_modifier_and_focus_reset_then_left_sends(self):
         a,d=self.prepare_send();s=LocalDeviceSession(d)

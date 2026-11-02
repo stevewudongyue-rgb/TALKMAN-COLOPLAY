@@ -833,6 +833,24 @@ class WindowTests(unittest.TestCase):
         self.assertEqual(a.shortcuts['global_record'], 'Control+Alt+F3')
         self.assertEqual(self.controller.bindings['global_record'], 'Control+Alt+F3')
 
+    def test_settings_stays_above_pinned_main_window(self):
+        a = self.app
+        a.topmost_var.set(True)
+        self.controller.apply_preferences()
+        a.open_settings('window')
+        a.update()
+        settings = a.settings_window
+        self.assertTrue(a.tk.getboolean(settings.attributes('-topmost')))
+        self.assertTrue(settings.winfo_viewable())
+        a.topmost_var.set(False)
+        self.controller.apply_preferences()
+        self.assertFalse(a.tk.getboolean(settings.attributes('-topmost')))
+        a.topmost_var.set(True)
+        self.controller.apply_preferences()
+        a.open_settings('controls')
+        self.assertIs(a.settings_window, settings)
+        self.assertTrue(a.tk.getboolean(settings.attributes('-topmost')))
+
     def test_header_and_window_settings_fit_minimum_window(self):
         a = self.app
         a.geometry('900x640')

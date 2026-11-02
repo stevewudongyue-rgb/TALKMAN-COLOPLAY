@@ -54,7 +54,7 @@ class SettingsPanelMixin:
         existing = getattr(self, "settings_window", None)
         if existing and existing.winfo_exists():
             self.settings_notebook.select(self.settings_tabs[page])
-            existing.lift()
+            self._raise_settings_window(existing)
             return
 
         win = tk.Toplevel(self)
@@ -66,6 +66,7 @@ class SettingsPanelMixin:
         win.geometry("700x700")
         win.minsize(650, 520)
         win.transient(self)
+        self._raise_settings_window(win)
 
         shell = ttk.Frame(win, padding=(24, 20, 24, 20))
         shell.pack(fill="both", expand=True)
@@ -118,7 +119,13 @@ class SettingsPanelMixin:
         win.bind("<Destroy>", lambda event: self._cancel_settings_resize(win) if event.widget == win else None, add=True)
         win.bind('<Configure>', lambda event: self._queue_settings_resize(win) if event.widget == win else None, add=True)
         self._fit_settings_window(win)
+        win.after_idle(lambda: self._raise_settings_window(win) if win.winfo_exists() else None)
         win.protocol("WM_DELETE_WINDOW", lambda: self._close_settings(win))
+
+    def _raise_settings_window(self, win):
+        if win.winfo_exists():
+            win.attributes('-topmost', self.tk.getboolean(self.attributes('-topmost')))
+            win.lift(self)
 
     def _show_version_record(self):
         existing=getattr(self,'version_window',None)
@@ -938,6 +945,17 @@ class SettingsPanelMixin:
         ttk.Checkbutton(box, text="悬停文字时局部放大", variable=enabled).pack(anchor="w")
         ttk.Label(box, text="点击后收起；移出文字区再进入即可重新显示。", style="Muted.TLabel").pack(anchor="w", pady=(4, 0))
 
+        if sys.platform == 'darwin':
+            scale_labels = {'标准': 1.0, '较大': 1.25, '最大': 1.5}
+            scale_row = ttk.Frame(box)
+            scale_row.pack(fill='x', pady=(12, 0))
+            ttk.Label(scale_row, text='界面文字').pack(side='left')
+            scale_choice = tk.StringVar(value=next((label for label, factor in scale_labels.items()
+                if factor == self.ui_scale), '标准'))
+            ttk.Combobox(scale_row, textvariable=scale_choice, values=list(scale_labels),
+                         state='readonly', width=12).pack(side='right')
+            ttk.Label(box, text='高分辨率屏幕可调大，重启应用后生效。', style='Muted.TLabel').pack(anchor='w', pady=(4, 0))
+
         def save():
             if self.busy:
                 feedback.set("请在本轮录音和处理结束后保存。")
@@ -950,6 +968,8 @@ class SettingsPanelMixin:
                 self.refresh_shortcut_labels()
                 temp = self.ui_path.with_suffix(".tmp")
                 preferences = {**self.ui_preferences, "magnifier": enabled.get(), "wheel_caret": wheel_enabled.get()}
+                if sys.platform == 'darwin':
+                    preferences['ui_scale'] = scale_labels[scale_choice.get()]
                 temp.write_text(json.dumps(preferences, ensure_ascii=False), encoding="utf-8")
                 temp.replace(self.ui_path)
             except (ShortcutError, OSError) as ex:
@@ -959,13 +979,16 @@ class SettingsPanelMixin:
             self.magnifier_var.set(enabled.get())
             self.wheel_caret_var.set(wheel_enabled.get())
             self.magnifier.hide()
-            self.status_var.set("快捷键与显示设置已保存")
+            self.status_var.set("快捷键与显示设置已保存；界面文字大小重启后生效" if sys.platform == 'darwin'
+                                else "快捷键与显示设置已保存")
             self._close_settings(win)
 
         def defaults():
             draft.update(DEFAULT_SHORTCUTS)
             for action, (_, value) in self.shortcut_fields.items():
                 value.set(display_shortcut(draft[action]))
+            if sys.platform == 'darwin':
+                scale_choice.set('标准')
             feedback.set("已恢复默认快捷键，保存后生效。")
 
         self.controls_save = save
