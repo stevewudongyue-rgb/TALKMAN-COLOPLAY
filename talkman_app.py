@@ -37,6 +37,7 @@ from talkman_global_hotkeys import voice_bindings
 from talkman_target_picker import TargetPicker
 from talkman_live_sync import LiveSync
 from talkman_onboarding import QuickGuide, should_offer_guide
+from talkman_mac_guide import MacSetupGuide, mac_guide_enabled, should_offer_mac_guide
 from talkman_hover_help import HoverHelp, BUTTON_HELP
 from talkman_ai_edit import AIEditMixin
 from talkman_conventions import Conventions, is_remember_instruction
@@ -308,14 +309,16 @@ class TalkManApp(TranslationUIMixin, DeliveryUIMixin, ConventionsUIMixin, AIEdit
         self.coloplay = ColoPlayController(self)
         self.coloplay_status.configure(textvariable=self.coloplay.badge)
         self.title('TALKMAN COLOPLAY')
-        if self.window_controller.native_enabled and should_offer_guide(preferences, self.text_model_ready()):
+        offer_guide = (should_offer_mac_guide(preferences) if mac_guide_enabled()
+                       else should_offer_guide(preferences, self.text_model_ready()))
+        if self.window_controller.native_enabled and offer_guide:
             self.guide_job = self.after(500, self.show_quick_guide)
         if self.window_controller.native_enabled and self.free_mode_var.get():
             threading.Thread(target=self.free_service.warmup, daemon=True).start()
 
     def show_quick_guide(self):
         self.guide_job = None
-        if self.busy or self.target_filling or self.closing:
+        if self.busy or self.target_filling or self.closing or self.auto_running or self.ai_review is not None:
             return
         if self.guide and self.guide.opened:
             return
@@ -323,7 +326,7 @@ class TalkManApp(TranslationUIMixin, DeliveryUIMixin, ConventionsUIMixin, AIEdit
         if settings and settings.winfo_exists():
             self._close_settings(settings)
         self.window_controller.reveal(focus=False)
-        self.guide = QuickGuide(self)
+        self.guide = MacSetupGuide(self) if mac_guide_enabled() else QuickGuide(self)
         self.window_controller.sync_hotkeys()
 
     def set_sync_mode(self, enabled):

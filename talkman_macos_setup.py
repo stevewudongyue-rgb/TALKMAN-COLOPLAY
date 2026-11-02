@@ -13,15 +13,19 @@ from talkman_voice import _mac_microphone_permission
 SETTINGS_URLS = {
     "microphone": "x-apple.systempreferences:com.apple.preference.security?Privacy_Microphone",
     "accessibility": "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility",
+    "local_network": "x-apple.systempreferences:com.apple.preference.security?Privacy_LocalNetwork",
 }
 MICROPHONE_LABELS = {0: "等待首次授权", 1: "受到系统或公司策略限制", 2: "未允许", 3: "已允许"}
 
 
 def settings_path(kind: str, version: str | None = None) -> str:
-    label = {"microphone": "麦克风", "accessibility": "辅助功能"}[kind]
+    label = {"microphone": "麦克风", "accessibility": "辅助功能", "local_network": "本地网络"}[kind]
     version = platform.mac_ver()[0] if version is None else version
     try:
-        legacy = int(version.split(".")[0]) < 13
+        major = int(version.split(".")[0])
+        if kind == 'local_network' and major < 15:
+            return '系统设置 → 网络（此版本没有独立的本地网络授权页）'
+        legacy = major < 13
     except ValueError:
         legacy = False
     prefix = "系统偏好设置 → 安全性与隐私 → 隐私" if legacy else "系统设置 → 隐私与安全性"

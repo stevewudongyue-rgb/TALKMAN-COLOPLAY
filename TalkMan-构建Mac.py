@@ -28,7 +28,7 @@ SOURCE_FILES = ("talkman_coloplay_guide_preview.py", "talkman_coloplay_guide.py"
                 "talkman_settings_ui.py", "talkman_settings_viewport.py", "talkman_ui_widgets.py", "talkman_credentials.py", "talkman_editor.py",
                 "talkman_macos_setup.py", "talkman_records.py", "talkman_window.py", "talkman_global_hotkeys.py",
                 "talkman_target_picker.py", "talkman_sync.py", "talkman_live_sync.py",
-                "talkman_onboarding.py", "talkman_hover_help.py", "talkman_ai_edit.py",
+                "talkman_onboarding.py", "talkman_mac_guide.py", "talkman_hover_help.py", "talkman_ai_edit.py",
                 "talkman_conventions.py", "talkman_conventions_ui.py", "talkman_convention_learning.py",
                 "talkman_delivery_ui.py", "talkman_translation.py", "talkman_translation_ui.py",
                 "talkman_coloplay.py", "talkman_coloplay_protocol.py", "talkman_coloplay_server.py", "talkman_coloplay_discovery.py",
@@ -187,8 +187,9 @@ def make_disk_image(app: Path, *, test_build: bool = False) -> Path:
         shortcut.symlink_to("/Applications", target_is_directory=True)
     instructions = (
         "把 TALKMAN COLOPLAY.app 拖到 Applications，再从“应用程序”打开。\n"
-        "无须安装 Python。连接设备时允许本地网络；首次录音允许麦克风；需要填入 Agent 时再开启辅助功能。\n"
-        "在设置的“Mac 授权”页可检测权限并直接打开系统设置。\n")
+        "无须安装 Python。首次打开会进入六步引导，按提示完成麦克风、免费服务、设备连接和 Agent 授权。\n"
+        "可跳过暂时不用的功能；在“设置 → 新手引导”继续，已保存的 Key、历史和配对会保留。\n"
+        "设备连接页允许刷新 Mac 地址，并直接填写 COLOPLAY 地址；macOS 提示本地网络时请选择允许。\n")
     if test_build:
         instructions += (
             "\n这是测试版，未使用 Developer ID 签名、未完成 Apple 公证。\n"

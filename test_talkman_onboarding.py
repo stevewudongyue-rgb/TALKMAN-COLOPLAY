@@ -16,7 +16,8 @@ class GuideTests(unittest.TestCase):
     tearDown = window_tests.WindowTests.tearDown
 
     def guide(self, page=None):
-        self.app.show_quick_guide()
+        with patch('talkman_app.mac_guide_enabled', return_value=False):
+            self.app.show_quick_guide()
         if page is not None:
             self.app.guide.show(page)
         self.app.update()
