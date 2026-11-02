@@ -211,6 +211,35 @@ def _as_windows(values: Iterable[Any]) -> list[TargetWindow]:
     return result
 
 
+def _match_refreshed_window(windows: list[TargetWindow], reference: TargetWindow) -> TargetWindow | None:
+    """窗口临时句柄变化后，按同一进程的身份重新匹配。"""
+    exact = [window for window in windows if window.session_key() == reference.session_key()]
+    if len(exact) == 1:
+        candidate = exact[0]
+        if reference.identity and candidate.identity != reference.identity:
+            return None
+        if reference.process_started is not None and candidate.process_started != reference.process_started:
+            return None
+        return candidate
+
+    identity = reference.identity.replace("\\", "/").strip().casefold()
+    if reference.pid is None or not identity or reference.process_started is None:
+        return None
+    same_process = [window for window in windows if (
+        window.pid == reference.pid
+        and window.identity.replace("\\", "/").strip().casefold() == identity
+        and window.process_started == reference.process_started
+    )]
+    if len(same_process) == 1:
+        return same_process[0]
+    if len(same_process) > 1:
+        title = reference.title.strip().casefold()
+        same_title = [window for window in same_process if window.title.strip().casefold() == title]
+        if len(same_title) == 1:
+            return same_title[0]
+    return None
+
+
 class _UnsupportedBackend:
     def list_windows(self) -> list[TargetWindow]:
         raise TargetError(UNSUPPORTED_MESSAGE)
@@ -299,27 +328,47 @@ class TargetController:
     def refresh(self, callback: Callback | None = None) -> None:
         self._queue.put(("refresh", callback, None))
 
-    def cycle(self, direction, callback=None, expected_target=None, cancelled=None):
-        self._queue.put(('cycle', callback, (1 if direction > 0 else -1, expected_target, cancelled)))
+    def cycle(self, direction, callback=None, expected_target=None, cancelled=None, *, commit_preview=False):
+        self._queue.put(('cycle', callback, (1 if direction > 0 else -1, expected_target, cancelled, commit_preview)))
 
     def _cycle(self, callback, request):
-        direction, expected_target, cancelled = request
+        direction, expected_target, cancelled, *options = request
+        commit_preview = bool(options and options[0])
         def check_current():
             if cancelled is not None and cancelled.is_set():
                 raise TargetError('目标预选已变化，本次切换已取消。')
         try:
             check_current()
+            with self._lock:
+                previous_windows = list(self._windows)
+                current = self._selected
+            if commit_preview:
+                target = (_match_refreshed_window(previous_windows, expected_target)
+                          if isinstance(expected_target, TargetWindow) else next(
+                              (w for w in previous_windows if w.session_key() == expected_target), None))
+                if target is None or not is_agent_window(target):
+                    raise TargetError('预览的目标窗口已变化，请刷新后重新旋转选择。')
+                check_current()
+                # 确认预选不依赖后台应用取得焦点；真正填入前仍严格验证窗口。
+                self.select(target)
+                self._emit(callback, 'ok', target)
+                return
             windows = [w for w in _as_windows(self.backend.list_windows()) if is_agent_window(w)]
             windows.sort(key=lambda w: (w.app.casefold(), str(w.id), str(w.process_started)))
             with self._lock:
                 self._windows = windows
             if not windows:
                 raise TargetError('未找到已打开的 Agent 窗口。')
-            current = self.selected
-            index = next((i for i,w in enumerate(windows) if current and w.session_key() == current.session_key()),
+            current_window = _match_refreshed_window(windows, current) if current else None
+            index = next((i for i,w in enumerate(windows) if current_window and w.session_key() == current_window.session_key()),
                          -1 if direction > 0 else 0)
             if expected_target is not None:
-                target = next((w for w in windows if w.session_key() == expected_target), None)
+                reference = expected_target if isinstance(expected_target, TargetWindow) else next(
+                    (w for w in previous_windows if w.session_key() == expected_target), None)
+                if reference is None and current and current.session_key() == expected_target:
+                    reference = current
+                target = (_match_refreshed_window(windows, reference) if reference else next(
+                    (w for w in windows if w.session_key() == expected_target), None))
                 if target is None:
                     raise TargetError('预览的目标窗口已关闭或改变，请重新旋转选择。')
             else:

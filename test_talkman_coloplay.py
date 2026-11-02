@@ -3,6 +3,7 @@ import gc
 import json
 from pathlib import Path
 import queue
+import sys
 import tempfile
 import time
 import unittest
@@ -484,6 +485,52 @@ class DesktopTests(unittest.TestCase):
             d.active=True;a.target_controller.cycle.assert_not_called()
         with patch('talkman_coloplay.time.monotonic',return_value=11.01):
             d.commit_target();a.target_controller.cycle.assert_called_once()
+            self.assertEqual(a.target_controller.cycle.call_args.kwargs['commit_preview'],sys.platform=='darwin')
+
+    def test_mac_release_selects_preview_without_activating_background_agent(self):
+        a,d=self.app,self.device
+        target=TargetWindow(12,43,'ZCode','项目','dev.zcode.app',200.0)
+        a.target_controller.close()
+        a.target_controller=Mock(selected=None,windows=[target])
+        d.target_preview=target;d.target_due=1;d.active=True
+        with patch('talkman_coloplay.sys.platform','darwin'):
+            d.commit_target()
+        self.assertEqual(a.target_controller.cycle.call_args.kwargs['expected_target'],target)
+        self.assertTrue(a.target_controller.cycle.call_args.kwargs['commit_preview'])
+
+    def test_mac_wifi_preview_then_release_updates_target_without_foreground_requirement(self):
+        a,d=self.app,self.device
+        doubao=TargetWindow(11,42,'豆包','豆包对话','com.bot.pc.doubao',100.0)
+        zcode=TargetWindow(12,43,'ZCode','项目','dev.zcode.app',200.0)
+        backend=FakeBackend();backend.windows=[doubao,zcode]
+        backend.activate_window=Mock(side_effect=RuntimeError('后台窗口未获得焦点'))
+        a.target_controller.close()
+        a.target_controller=TargetController(Path(self.temp.name),backend=backend)
+        refreshed=[];a.target_controller.refresh(lambda *r:refreshed.append(r))
+        self.assertEqual(wait_result(refreshed)[0],'ok')
+        backend.list_windows=Mock(side_effect=RuntimeError('后台扫描暂时不可用'))
+        d.active=True
+        a.set_text('保留编辑正文')
+        with patch('talkman_coloplay.sys.platform','darwin'),patch.object(d.highlight,'show'):
+            for expected in (zcode,doubao,zcode):
+                old=a.target_controller.selected
+                self.action('target_next')
+                self.assertEqual(d.target_preview,expected)
+                self.assertEqual(d.snapshot()['target_choice'],expected.app)
+                self.assertEqual(a.target_controller.selected,old)
+                self.action('target_commit')
+                deadline=time.monotonic()+2
+                while d.cycling and time.monotonic()<deadline:
+                    d.tick();a.after_cancel(d.job);d.job=None
+                    time.sleep(.01)
+                self.assertFalse(d.cycling)
+                self.assertEqual(a.target_controller.selected,expected)
+                self.assertEqual(a.target_label_var.get(),expected.display_name())
+                self.assertFalse(d.target_view_error)
+                self.assertIn('已选目标',a.status_var.get())
+        self.assertEqual(a.current_text(),'保留编辑正文')
+        backend.list_windows.assert_not_called();backend.activate_window.assert_not_called()
+        self.assertFalse(any(isinstance(c,tuple) and c[0]=='fill' for c in backend.calls))
 
     def test_highlight_switch_controls_success_feedback(self):
         a,d=self.app,self.device

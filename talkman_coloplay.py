@@ -463,7 +463,8 @@ class ColoPlayController:
         self.target_cancel=threading.Event()
         cancelled=self.target_cancel
         controller.cycle(1,lambda state,value:self.events.put(('cycle',state,(generation,value))),
-                         expected_target=target.session_key(),cancelled=cancelled)
+                         expected_target=target if sys.platform=='darwin' else target.session_key(),cancelled=cancelled,
+                         commit_preview=sys.platform=='darwin')
 
     def backward_delete(self):
         a = self.app
@@ -558,7 +559,8 @@ class ColoPlayController:
                 self.target_view_error = peer != 'ok'
                 if peer == 'ok':
                     self.app.target_label_var.set(self.app.target_controller.label)
-                    self.app.status_var.set('已切换目标：'+self.app.target_controller.label)
+                    self.app.status_var.set(('已选目标：' if sys.platform=='darwin' else '已切换目标：')
+                                            +self.app.target_controller.label)
                     if self.preferences['highlight_target']:
                         self.highlight.show(value)
                 else: self.app.status_var.set(str(value))

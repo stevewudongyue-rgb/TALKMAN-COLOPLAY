@@ -159,6 +159,168 @@ class TargetTests(unittest.TestCase):
             self.assertNotIn("找到 1 个", controller.refresh_report)
             controller.close()
 
+    def test_cycle_resolves_preview_after_window_handle_refresh(self):
+        previous = TargetWindow(11, 42, "豆包", "豆包对话", "com.bot.pc.doubao", 100.0)
+        refreshed = TargetWindow(92, 42, "豆包", "豆包对话", "com.bot.pc.doubao", 100.0)
+        backend = FakeBackend()
+        backend.windows = [refreshed]
+        backend.activate_window = Mock()
+        with tempfile.TemporaryDirectory() as directory:
+            controller = TargetController(Path(directory), backend=backend)
+            self.addCleanup(controller.close)
+            controller._windows = [previous]
+            controller.select(previous)
+            results = []
+            controller._cycle(lambda state, value: results.append((state, value)),
+                              (1, previous.session_key(), None))
+            self.assertEqual(results, [("ok", refreshed)])
+            backend.activate_window.assert_called_once_with(refreshed)
+            self.assertEqual(controller.selected, refreshed)
+
+    def test_cycle_selects_preview_without_an_existing_selection(self):
+        preview = TargetWindow(11, 42, "ZCode", "项目", "dev.zcode.app", 100.0)
+        refreshed = TargetWindow(92, 42, "ZCode", "项目", "dev.zcode.app", 100.0)
+        backend = FakeBackend()
+        backend.windows = [refreshed]
+        backend.activate_window = Mock()
+        with tempfile.TemporaryDirectory() as directory:
+            controller = TargetController(Path(directory), backend=backend)
+            self.addCleanup(controller.close)
+            controller._windows = [preview]
+            self.assertIsNone(controller.selected)
+            results = []
+            controller._cycle(lambda state, value: results.append((state, value)),
+                              (1, preview.session_key(), None))
+            self.assertEqual(results, [("ok", refreshed)])
+            backend.activate_window.assert_called_once_with(refreshed)
+            self.assertEqual(controller.selected, refreshed)
+
+    def test_commit_preview_keeps_background_target_without_activating_it(self):
+        doubao = TargetWindow(11, 42, '豆包', '对话', 'com.bot.pc.doubao', 100.0)
+        zcode = TargetWindow(12, 43, 'ZCode', '项目', 'dev.zcode.app', 200.0)
+        backend = FakeBackend()
+        backend.list_windows = Mock(return_value=[doubao])
+        backend.activate_window = Mock(side_effect=TargetError('后台窗口未获得焦点'))
+        with tempfile.TemporaryDirectory() as directory:
+            controller = TargetController(Path(directory), backend=backend)
+            try:
+                controller._windows = [doubao, zcode]
+                controller.select(doubao)
+                results = []
+                controller.cycle(1, lambda *value: results.append(value),
+                                 expected_target=zcode.session_key(), commit_preview=True)
+                self.assertEqual(wait_result(results), ('ok', zcode))
+                self.assertEqual(controller.selected, zcode)
+                backend.list_windows.assert_not_called()
+                backend.activate_window.assert_not_called()
+            finally:
+                controller.close()
+
+    def test_commit_preview_rejects_target_missing_from_cached_scan(self):
+        doubao = TargetWindow(11, 42, '豆包', '对话', 'com.bot.pc.doubao', 100.0)
+        zcode = TargetWindow(12, 43, 'ZCode', '项目', 'dev.zcode.app', 200.0)
+        backend = FakeBackend()
+        backend.activate_window = Mock()
+        with tempfile.TemporaryDirectory() as directory:
+            controller = TargetController(Path(directory), backend=backend)
+            try:
+                controller._windows = [doubao]
+                controller.select(doubao)
+                results = []
+                controller.cycle(1, lambda *value: results.append(value),
+                                 expected_target=zcode.session_key(), commit_preview=True)
+                self.assertEqual(wait_result(results)[0], 'error')
+                self.assertEqual(controller.selected, doubao)
+                backend.activate_window.assert_not_called()
+            finally:
+                controller.close()
+
+    def test_commit_preview_rejects_cancelled_and_reused_process(self):
+        preview=TargetWindow(11,42,'豆包','对话','com.bot.pc.doubao',100.0)
+        backend=FakeBackend();backend.activate_window=Mock()
+        with tempfile.TemporaryDirectory() as directory:
+            controller=TargetController(Path(directory),backend=backend)
+            try:
+                for changed in (False,True):
+                    cancelled=threading.Event()
+                    if not changed:cancelled.set()
+                    controller._windows=[TargetWindow(11,42,'豆包','对话','com.bot.pc.doubao',
+                                                      200.0 if changed else 100.0)]
+                    results=[]
+                    controller.cycle(1,lambda *r:results.append(r),expected_target=preview,
+                                     cancelled=cancelled,commit_preview=True)
+                    self.assertEqual(wait_result(results)[0],'error')
+                    self.assertIsNone(controller.selected)
+                backend.activate_window.assert_not_called()
+            finally:controller.close()
+
+    def test_selected_preview_is_revalidated_before_fill(self):
+        preview=TargetWindow(11,42,'豆包','对话','com.bot.pc.doubao',100.0)
+        backend=FakeBackend();backend.validate_window=Mock(return_value=None)
+        with tempfile.TemporaryDirectory() as directory:
+            controller=TargetController(Path(directory),backend=backend)
+            try:
+                controller._windows=[preview];results=[]
+                controller.cycle(1,lambda *r:results.append(r),expected_target=preview,commit_preview=True)
+                self.assertEqual(wait_result(results),('ok',preview))
+                controller.fill_with_receipt('不可误投',lambda *r:results.append(r),
+                                             expected_target=preview.session_key())
+                self.assertEqual(wait_result(results)[0],'error')
+                backend.validate_window.assert_called_once_with(preview)
+                self.assertFalse(any(isinstance(c,tuple) and c[0]=='fill' for c in backend.calls))
+            finally:controller.close()
+
+    def test_cycle_matches_same_process_window_by_title_when_process_has_several(self):
+        previous = [
+            TargetWindow(11, 42, "ZCode", "项目 A", "dev.zcode.app", 100.0),
+            TargetWindow(12, 42, "ZCode", "项目 B", "dev.zcode.app", 100.0),
+        ]
+        refreshed = [
+            TargetWindow(91, 42, "ZCode", "项目 A", "dev.zcode.app", 100.0),
+            TargetWindow(92, 42, "ZCode", "项目 B", "dev.zcode.app", 100.0),
+        ]
+        backend = FakeBackend()
+        backend.windows = refreshed
+        backend.activate_window = Mock()
+        with tempfile.TemporaryDirectory() as directory:
+            controller = TargetController(Path(directory), backend=backend)
+            self.addCleanup(controller.close)
+            controller._windows = previous
+            controller.select(previous[0])
+            results = []
+            controller._cycle(lambda state, value: results.append((state, value)),
+                              (1, previous[1].session_key(), None))
+            self.assertEqual(results, [("ok", refreshed[1])])
+            backend.activate_window.assert_called_once_with(refreshed[1])
+
+    def test_cycle_rejects_ambiguous_window_refresh_and_reused_process_id(self):
+        previous = TargetWindow(11, 42, "豆包", "相同标题", "com.bot.pc.doubao", 100.0)
+        backend = FakeBackend()
+        backend.windows = [
+            TargetWindow(91, 42, "豆包", "相同标题", "com.bot.pc.doubao", 100.0),
+            TargetWindow(92, 42, "豆包", "相同标题", "com.bot.pc.doubao", 100.0),
+        ]
+        backend.activate_window = Mock()
+        with tempfile.TemporaryDirectory() as directory:
+            controller = TargetController(Path(directory), backend=backend)
+            self.addCleanup(controller.close)
+            controller._windows = [previous]
+            controller.select(previous)
+            results = []
+            controller._cycle(lambda state, value: results.append((state, value)),
+                              (1, previous.session_key(), None))
+            self.assertEqual(results[0][0], "error")
+            self.assertIn("重新旋转选择", results[0][1])
+            backend.activate_window.assert_not_called()
+
+            backend.windows = [TargetWindow(93, 42, "豆包", "相同标题", "com.bot.pc.doubao", 200.0)]
+            controller._windows = [previous]
+            results.clear()
+            controller._cycle(lambda state, value: results.append((state, value)),
+                              (1, previous.session_key(), None))
+            self.assertEqual(results[0][0], "error")
+            backend.activate_window.assert_not_called()
+
     def test_readonly_web_document_is_not_an_input(self):
         backend = WindowsTargetBackend()
         document = SimpleNamespace(CurrentControlType=backend._CONTROL_DOCUMENT)

@@ -1,5 +1,6 @@
 """松手选目标、发送隔离阶段、贴边编辑会话及首次教程。全部使用假音频和假目标。"""
 import time
+import sys
 import unittest
 from unittest.mock import Mock, patch
 from talkman_coloplay_preview import LocalDeviceSession, DeviceRuntime
@@ -116,7 +117,8 @@ class Interaction43Tests(unittest.TestCase):
         d.tick();a.after_cancel(d.job);d.job=None
         a.target_controller.cycle.assert_not_called()
         s.feed(0,500)
-        self.assertEqual(a.target_controller.cycle.call_args.kwargs['expected_target'],windows[2].session_key())
+        expected=windows[2] if sys.platform=='darwin' else windows[2].session_key()
+        self.assertEqual(a.target_controller.cycle.call_args.kwargs['expected_target'],expected)
         s.feed(0,600);a.target_controller.cycle.assert_called_once()
         d.local_session=None
 

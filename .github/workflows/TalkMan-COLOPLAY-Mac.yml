@@ -33,7 +33,7 @@ jobs:
       - name: 检查 Wi-Fi、按键及 Mac 编辑逻辑
         run: |
           set -e
-          for module in test_talkman_coloplay_revision48 test_talkman_coloplay_revision47 test_talkman_coloplay_revision46 test_talkman_coloplay_revision44 test_talkman_coloplay_revision43 test_talkman_coloplay_revision45 test_talkman_target_macos test_talkman_macos_setup test_talkman_app; do
+          for module in test_talkman_target test_talkman_coloplay test_talkman_coloplay_revision48 test_talkman_coloplay_revision47 test_talkman_coloplay_revision46 test_talkman_coloplay_revision44 test_talkman_coloplay_revision43 test_talkman_coloplay_revision45 test_talkman_target_macos test_talkman_macos_setup test_talkman_app; do
             TalkMan-venv-mac/bin/python -u -c 'import faulthandler, sys, unittest; faulthandler.dump_traceback_later(180, exit=True); unittest.main(module=sys.argv.pop(), verbosity=2)' "$module"
           done
       - name: 校验成品与 DMG
