@@ -29,15 +29,16 @@ class SmokeCheckTests(unittest.TestCase):
             report = Path(folder)/'TalkMan-report.json'
             data_dirs = []
             def probe(directory, report_path, state):
-                self.assertEqual(directory.parent, Path(folder))
-                self.assertNotEqual(directory, Path(folder))
+                # macOS 的 /var 临时目录可能通过 /private/var 返回；比较实际目录。
+                self.assertEqual(directory.parent.resolve(), Path(folder).resolve())
+                self.assertNotEqual(directory.resolve(), Path(folder).resolve())
                 self.assertTrue(directory.is_dir())
                 data_dirs.append(directory)
                 self.assertEqual(json.loads(report.read_text('utf-8'))['状态'], '运行中')
                 (directory/'draft.txt').write_text('隔离自检草稿', encoding='utf-8')
             with patch('tempfile.gettempdir', side_effect=FileNotFoundError('系统 TEMP 不可用')), \
                  patch('talkman_coloplay._smoke_check_ui', side_effect=probe):
-                self.assertEqual(smoke_check(report), 0)
+                self.assertEqual(smoke_check(report), 0, report.read_text('utf-8'))
             result = json.loads(report.read_text('utf-8'))
             self.assertTrue(result['通过'])
             self.assertEqual(result['状态'], '完成')
