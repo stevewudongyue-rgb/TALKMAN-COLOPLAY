@@ -6,16 +6,18 @@
 
 ## 下载
 
-**Mac 测试版 0.1.28.48 · 2026-11-02**（Windows 保持 0.1.28.47）
+**Mac 测试版 0.1.28.49 · 2026-11-02**（Windows 保持 0.1.28.47）
+
+本版修复 Mac 豆包和 Perplexity 未出现在目标列表的问题。根据用户诊断加入两个应用的精确标识；豆包未返回启动时间时，改用进程启动时间核对身份。真实输入框聚焦和填入仍需在这两个应用上验收。
 
 | 安装文件 | 适用设备 |
 |---|---|
 | [Windows 安装器](https://github.com/stevewudongyue-rgb/TALKMAN-COLOPLAY/releases/download/coloplay-v0.1.28.47/TalkMan-COLOPLAY-0.1.28.47-Windows-x64-Setup.exe) | Windows 10／11 x64 |
-| [Mac 安装镜像 DMG](https://github.com/stevewudongyue-rgb/TALKMAN-COLOPLAY/releases/download/coloplay-v0.1.28.48/TalkMan-COLOPLAY-0.1.28.48-Mac-AppleSilicon.dmg) | Apple 芯片 M1 及以后，macOS 14 及以上 |
+| [Mac 安装镜像 DMG](https://github.com/stevewudongyue-rgb/TALKMAN-COLOPLAY/releases/download/coloplay-v0.1.28.49/TalkMan-COLOPLAY-0.1.28.49-Mac-AppleSilicon.dmg) | Apple 芯片 M1 及以后，macOS 14 及以上 |
 | [Windows 便携版](https://github.com/stevewudongyue-rgb/TALKMAN-COLOPLAY/releases/download/coloplay-v0.1.28.47/TalkMan-COLOPLAY-0.1.28.47-Windows-x64-Portable.zip) | 完整解压运行，保留 `_internal` 文件夹 |
 | [Windows 校验值](https://github.com/stevewudongyue-rgb/TALKMAN-COLOPLAY/releases/download/coloplay-v0.1.28.47/TalkMan-SHA256SUMS.txt) | SHA-256 |
 
-[Mac 本版发布说明及校验值](https://github.com/stevewudongyue-rgb/TALKMAN-COLOPLAY/releases/tag/coloplay-v0.1.28.48) · [Windows 发布说明](https://github.com/stevewudongyue-rgb/TALKMAN-COLOPLAY/releases/tag/coloplay-v0.1.28.47)
+[Mac 本版发布说明及校验值](https://github.com/stevewudongyue-rgb/TALKMAN-COLOPLAY/releases/tag/coloplay-v0.1.28.49) · [Windows 发布说明](https://github.com/stevewudongyue-rgb/TALKMAN-COLOPLAY/releases/tag/coloplay-v0.1.28.47)
 
 ## 开始使用
 
