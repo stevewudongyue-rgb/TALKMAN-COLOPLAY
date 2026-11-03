@@ -10,6 +10,7 @@ import ctypes
 import ctypes.wintypes as wt
 import os
 import time
+from contextlib import contextmanager
 from dataclasses import dataclass
 from typing import Any, Iterable, Optional
 
@@ -109,6 +110,25 @@ def _process_path(pid: int) -> str:
         return ""
     finally:
         kernel.CloseHandle(handle)
+
+
+@contextmanager
+def _physical_screen_coordinates():
+    """UIA 也会随调用线程虚拟化坐标，读取时须与原生高亮使用同一物理坐标系。"""
+    if os.name != 'nt':
+        yield  # 跨平台的隔离后端测试没有 Windows 坐标转换。
+        return
+    user = ctypes.WinDLL('user32', use_last_error=True)
+    change = user.SetThreadDpiAwarenessContext
+    change.argtypes = [ctypes.c_void_p]
+    change.restype = ctypes.c_void_p
+    previous = change(ctypes.c_void_p(-4))  # PER_MONITOR_AWARE_V2
+    if not previous:
+        raise TargetError('无法核对输入位置的屏幕缩放，请重新选择；本次未确认。')
+    try:
+        yield
+    finally:
+        change(previous)
 
 
 class WindowsTargetBackend:
@@ -341,12 +361,14 @@ class WindowsTargetBackend:
 
     @staticmethod
     def _element_rect(element):
-        rect = getattr(element, 'CurrentBoundingRectangle', None)
-        if rect is None:
+        # 不按系统缩放倍率手算：多屏缩放及屏幕原点不同，应在 UIA 读取源头统一。
+        with _physical_screen_coordinates():
+            rect = getattr(element, 'CurrentBoundingRectangle', None)
+            if rect is None:
+                return None
+            if hasattr(rect, 'left'):
+                return tuple(map(int, (rect.left, rect.top, rect.right-rect.left, rect.bottom-rect.top)))
             return None
-        if hasattr(rect, 'left'):
-            return tuple(map(int, (rect.left, rect.top, rect.right-rect.left, rect.bottom-rect.top)))
-        return None
 
     def list_inputs(self, window):
         valid = self.validate_window(window)
