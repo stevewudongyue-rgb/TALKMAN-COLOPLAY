@@ -1,6 +1,7 @@
 """不录音、不联网：验证语音操作对实际 Tk 编辑器的事务边界。"""
 import tempfile
 import gc
+import json
 import tkinter as tk
 import unittest
 from types import SimpleNamespace
@@ -97,6 +98,14 @@ class EditorTests(unittest.TestCase):
                 self.assertEqual(scaled.text._fit_sizes, (24, 22, 21))
             finally:
                 scaled.close_app()
+
+    def test_window_and_scale_preferences_are_saved_together(self):
+        with patch.object(self.app, 'save_ui_preferences', wraps=self.app.save_ui_preferences) as save:
+            self.app.save_window_preferences(ui_scale=1.5)
+        save.assert_called_once()
+        saved = Path(self.temp.name, 'interface.json').read_text(encoding='utf-8')
+        self.assertEqual(json.loads(saved)['ui_scale'], 1.5)
+        self.assertEqual(json.loads(saved)['edge_hide'], self.app.edge_hide_var.get())
 
     def emit(self,kind,value):
         FakeVoice.sessions[-1].emit(kind,value)

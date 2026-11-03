@@ -21,7 +21,7 @@ DIST = ROOT / "dist-mac"
 APP_NAME = "TALKMAN COLOPLAY.app"
 VENV = ROOT / "TalkMan-venv-mac"
 PYINSTALLER_VERSION = "6.22.3"
-SOURCE_FILES = ("talkman_coloplay_guide_preview.py", "talkman_coloplay_guide.py", "talkman_version.py", "talkman_free_service.py", "talkman_system_style.py", "talkman_coloplay_focus.py", "talkman_coloplay_scroll.py", "talkman_app.py", "talkman_qwen.py", "talkman_voice.py", "talkman_asr.py",
+SOURCE_FILES = ("talkman_coloplay_guide_preview.py", "talkman_coloplay_guide.py", "talkman_version.py", "talkman_free_service.py", "talkman_updates.py", "talkman_system_style.py", "talkman_coloplay_focus.py", "talkman_coloplay_scroll.py", "talkman_app.py", "talkman_qwen.py", "talkman_voice.py", "talkman_asr.py",
                 "talkman_asr_volc_baidu.py", "talkman_asr_tencent_xunfei.py", "talkman_assets.py",
                 "talkman_shortcuts.py", "talkman_magnifier.py", "talkman_target.py",
                 "talkman_target_windows.py", "talkman_target_macos.py",

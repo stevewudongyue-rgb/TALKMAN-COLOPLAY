@@ -6,6 +6,7 @@ from pathlib import Path
 import plistlib
 import queue
 import sys
+import threading
 import tkinter as tk
 from tkinter import ttk
 
@@ -25,6 +26,8 @@ from talkman_settings_viewport import SettingsViewport
 from talkman_version import FULL_VERSION, version_record
 from talkman_window import WindowPlatform, window_screen, fit_window_rect, Rect
 from talkman_free_service import NOTICE, FreeClient
+from talkman_updates import (UpdateError, check_update, discard_prepared_update,
+                             download_update, installed_app_path, launch_installer, prepare_mac_update)
 
 
 class SettingsPanelMixin:
@@ -46,7 +49,7 @@ class SettingsPanelMixin:
         if self.busy or self.ai_review is not None or self.convention_panel is not None:
             return
         pages = [("asr", "语音"), ("text", "指令改写"), ("conventions", "约定"), ("model", "模型连接"),
-                 ("controls", "快捷键与显示"), ("window", "窗口"), ("target", "填入目标"), ("coloplay", "COLOPLAY")]
+                 ("controls", "快捷键"), ("window", "窗口与显示"), ("target", "填入目标"), ("coloplay", "COLOPLAY")]
         if sys.platform == "darwin":
             pages.append(("mac", "Mac 授权"))
         if page not in dict(pages):
@@ -88,8 +91,15 @@ class SettingsPanelMixin:
         self.settings_viewport.pack(fill='both', expand=True)
         version_box = ttk.Frame(shell)
         version_box.pack(side='bottom', before=self.settings_viewport, fill='x', pady=(12, 0))
+        update_feedback = tk.StringVar(value='')
+        ttk.Label(version_box, textvariable=update_feedback, style='Muted.TLabel',
+                  wraplength=610).pack(side='bottom', fill='x')
         ttk.Label(version_box, text='TALKMAN COLOPLAY  '+FULL_VERSION, style='Muted.TLabel').pack(side='left')
         self.button(version_box, '版本记录', self._show_version_record, style='Ghost.TButton').pack(side='right')
+        update_button = self.button(version_box, '一键升级',
+                                    lambda: self._start_app_update(win, update_button, update_feedback),
+                                    style='Ghost.TButton')
+        update_button.pack(side='right', padx=(0, 8))
         self.settings_notebook = self.settings_viewport.notebook
         self.settings_tabs = {}
         for name, label in pages:
@@ -140,6 +150,67 @@ class SettingsPanelMixin:
         text.pack(fill='both',expand=True);text.configure(yscrollcommand=bar.set)
         text.insert('1.0',version_record());text.configure(state='disabled')
         self.version_text=text
+
+    def _start_app_update(self, win, button, feedback):
+        if self.busy or self.target_filling or self.ai_review is not None:
+            feedback.set('请先完成本轮录音、改写或填入。')
+            return
+        if getattr(self, '_app_update_running', False):
+            return
+        self._app_update_running = True
+        button.state(['disabled'])
+        feedback.set('正在检查、下载并校验更新；当前正文保持不变。')
+
+        def work():
+            try:
+                installed = installed_app_path()
+                info = check_update(FULL_VERSION)
+                if info is None:
+                    result = None
+                else:
+                    package = download_update(info)
+                    stage = (prepare_mac_update(package, info.version, installed)
+                             if sys.platform == 'darwin' else None)
+                    result = (info, package, installed, stage)
+                self.events.put(('check', done, 'ok', result))
+            except UpdateError as error:
+                self.events.put(('check', done, 'error', str(error)))
+            except Exception:
+                self.events.put(('check', done, 'error', '升级准备失败，当前版本未改变。'))
+
+        def done(state, result):
+            self._app_update_running = False
+            if not win.winfo_exists():
+                if state == 'ok' and result is not None:
+                    _, package, _, stage = result
+                    discard_prepared_update(package, stage)
+                return
+            button.state(['!disabled'])
+            if state != 'ok':
+                feedback.set(result)
+                return
+            if result is None:
+                feedback.set('当前已是最新版。')
+                return
+            info, package, installed, stage = result
+            if self.busy or self.target_filling or self.ai_review is not None:
+                discard_prepared_update(package, stage)
+                feedback.set('请结束当前操作后再点击一键升级。')
+                return
+            try:
+                ready = launch_installer(package, installed, info.version, prepared_stage=stage)
+            except UpdateError as error:
+                discard_prepared_update(package, stage)
+                feedback.set(str(error))
+                return
+            feedback.set('正在安装 ' + info.version + '，应用即将重新打开。')
+            self.close_app()
+            if self.closing:
+                ready.touch()
+            else:
+                feedback.set('当前正文未能保存，已取消升级。')
+
+        threading.Thread(target=work, daemon=True).start()
 
     def _build_coloplay_settings(self, box, win):
         self._settings_description(box, 'COLOPLAY · 设备偏好', '调整设备辅助桌面输入的方式；保存后立即生效，无需重装卡带。')
@@ -945,17 +1016,6 @@ class SettingsPanelMixin:
         ttk.Checkbutton(box, text="悬停文字时局部放大", variable=enabled).pack(anchor="w")
         ttk.Label(box, text="点击后收起；移出文字区再进入即可重新显示。", style="Muted.TLabel").pack(anchor="w", pady=(4, 0))
 
-        if sys.platform == 'darwin':
-            scale_labels = {'标准': 1.0, '较大': 1.25, '最大': 1.5}
-            scale_row = ttk.Frame(box)
-            scale_row.pack(fill='x', pady=(12, 0))
-            ttk.Label(scale_row, text='界面文字').pack(side='left')
-            scale_choice = tk.StringVar(value=next((label for label, factor in scale_labels.items()
-                if factor == self.ui_scale), '标准'))
-            ttk.Combobox(scale_row, textvariable=scale_choice, values=list(scale_labels),
-                         state='readonly', width=12).pack(side='right')
-            ttk.Label(box, text='高分辨率屏幕可调大，重启应用后生效。', style='Muted.TLabel').pack(anchor='w', pady=(4, 0))
-
         def save():
             if self.busy:
                 feedback.set("请在本轮录音和处理结束后保存。")
@@ -968,8 +1028,6 @@ class SettingsPanelMixin:
                 self.refresh_shortcut_labels()
                 temp = self.ui_path.with_suffix(".tmp")
                 preferences = {**self.ui_preferences, "magnifier": enabled.get(), "wheel_caret": wheel_enabled.get()}
-                if sys.platform == 'darwin':
-                    preferences['ui_scale'] = scale_labels[scale_choice.get()]
                 temp.write_text(json.dumps(preferences, ensure_ascii=False), encoding="utf-8")
                 temp.replace(self.ui_path)
             except (ShortcutError, OSError) as ex:
@@ -979,20 +1037,17 @@ class SettingsPanelMixin:
             self.magnifier_var.set(enabled.get())
             self.wheel_caret_var.set(wheel_enabled.get())
             self.magnifier.hide()
-            self.status_var.set("快捷键与显示设置已保存；界面文字大小重启后生效" if sys.platform == 'darwin'
-                                else "快捷键与显示设置已保存")
+            self.status_var.set("快捷键设置已保存")
             self._close_settings(win)
 
         def defaults():
             draft.update(DEFAULT_SHORTCUTS)
             for action, (_, value) in self.shortcut_fields.items():
                 value.set(display_shortcut(draft[action]))
-            if sys.platform == 'darwin':
-                scale_choice.set('标准')
             feedback.set("已恢复默认快捷键，保存后生效。")
 
         self.controls_save = save
-        self.button(actions, "保存快捷键与显示", save, style="Accent.TButton").pack(side="left", padx=(0, 8))
+        self.button(actions, "保存快捷键", save, style="Accent.TButton").pack(side="left", padx=(0, 8))
         self.button(actions, "恢复默认", defaults).pack(side="left")
         ttk.Label(box, text='想在其他软件里直接录音？到「窗口」设置后台唤起组合键。\n这里的录音／指令若也设为 Ctrl、Alt 或 Command 组合键，启用后台键后可两处使用。',
                   style='Muted.TLabel', wraplength=585).pack(anchor='w', pady=(16, 0))
@@ -1016,6 +1071,20 @@ class SettingsPanelMixin:
                     '收起后悬停或点击文字标签展开；拖离停靠位置或在菜单中取消收起。')
         ttk.Label(box, text='「置顶 ▾」可收起到四个边沿。按住标签拖动，可沿边移动或换到另一边；松手保持收起。\n'+gestures,
                   style='Muted.TLabel', wraplength=580).pack(anchor='w', pady=(0, 18))
+        if sys.platform == 'darwin':
+            scale_labels = {'标准': 1.0, '较大': 1.25, '最大': 1.5}
+            scale_row = ttk.Frame(box)
+            scale_row.pack(fill='x', pady=(0, 4))
+            ttk.Label(scale_row, text='界面文字').pack(side='left')
+            scale_choice = tk.StringVar(value=next((label for label, factor in scale_labels.items()
+                if factor == self.ui_scale), '标准'))
+            self.window_scale_choice = scale_choice
+            ttk.Combobox(scale_row, textvariable=scale_choice, values=list(scale_labels),
+                         state='readonly', width=12).pack(side='right')
+            ttk.Label(box, text='保存后完全退出并重新打开应用，字号才会变化。',
+                      style='Muted.TLabel').pack(anchor='w', pady=(0, 10))
+            ttk.Label(box, text='设置与草稿保存在：' + str(self.data_dir),
+                      style='Muted.TLabel', wraplength=580).pack(anchor='w', pady=(0, 12))
         self.window_shortcut_draft = {key: self.shortcuts[key] for key in GLOBAL_ACTIONS}
         self._settings_heading(box, '后台唤起组合键')
         for action in GLOBAL_ACTIONS:
@@ -1060,14 +1129,16 @@ class SettingsPanelMixin:
                 self.topmost_var.set(pinned.get())
                 self.global_voice_var.set(voice.get())
                 self.voice_gesture_var.set(gesture.get())
-                self.save_window_preferences()
+                self.save_window_preferences(**({'ui_scale': scale_labels[scale_choice.get()]}
+                                                if sys.platform == 'darwin' else {}))
             except (ShortcutError, OSError) as error:
                 for var, value in zip((self.edge_hide_var, self.topmost_var, self.global_voice_var, self.voice_gesture_var), previous):
                     var.set(value)
                 feedback.set(str(error))
                 return
             self.refresh_shortcut_labels()
-            self.status_var.set('窗口与全局快捷键设置已保存')
+            self.status_var.set('窗口设置已保存；界面文字字号需完全退出并重新打开应用后生效'
+                                if sys.platform == 'darwin' else '窗口与全局快捷键设置已保存')
             self._close_settings(win)
         self.window_settings_save = save
         self.window_settings_feedback = feedback

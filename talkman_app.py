@@ -368,9 +368,10 @@ class TalkManApp(TranslationUIMixin, DeliveryUIMixin, ConventionsUIMixin, AIEdit
     def make_text_client(self, settings=None):
         return FreeClient(self.free_service) if self.free_mode_var.get() else self.client_factory(settings or replace(self.settings))
 
-    def save_window_preferences(self):
+    def save_window_preferences(self, **changes):
         self.save_ui_preferences(edge_hide=self.edge_hide_var.get(), topmost=self.topmost_var.get(),
-                                 global_voice=self.global_voice_var.get(), voice_gesture=self.voice_gesture_var.get())
+                                 global_voice=self.global_voice_var.get(), voice_gesture=self.voice_gesture_var.get(),
+                                 **changes)
         self.window_controller.apply_preferences()
 
     def toggle_topmost(self):
