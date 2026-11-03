@@ -55,6 +55,12 @@ _NON_CHAT_INPUT = (
     "code", "source", "filename", "file name", "filter", "command", "url",
     "代码", "源码", "文件名", "路径", "筛选", "命令", "普通字段",
 )
+_FOCUSED_TEXT_ROLES = {"AXStaticText", "AXText", "AXUnknown"}
+_FOCUS_ROLE_NAMES = {
+    "AXWindow": "窗口", "AXWebArea": "网页区域", "AXGroup": "容器",
+    "AXStaticText": "文字", "AXText": "文字", "AXTextArea": "多行文字框",
+    "AXTextField": "单行文字框", "AXUnknown": "其他控件",
+}
 
 
 class _NativeAPI:
@@ -283,6 +289,8 @@ class MacTargetBackend:
         self._next_id = 1
         self.last_scan_report = "Mac 目标窗口诊断\n尚未刷新目标窗口。"
         self.last_scan_note = "尚未刷新目标窗口。"
+        self.last_fill_stage = "尚未尝试"
+        self.last_fill_focus_role = "未知"
 
     def _ensure_api(self) -> Any:
         if self._api is None:
@@ -545,8 +553,22 @@ class MacTargetBackend:
         if not self._same_window(record):
             return None
         element = self._api.get(record.root, "AXFocusedUIElement")
-        if element is not None and self._belongs(element, record) and self._is_editable(element):
-            return element
+        if element is None or not self._belongs(element, record):
+            return None
+        role = self._api.get(element, "AXRole")
+        self.last_fill_focus_role = _FOCUS_ROLE_NAMES.get(role, "其他控件")
+        seen: list[Any] = []
+        for _ in range(12):
+            if element is None or any(self._api.equal(element, other) for other in seen):
+                break
+            seen.append(element)
+            if self._is_editable(element):
+                return element
+            if role not in _FOCUSED_TEXT_ROLES:
+                break
+            element = self._api.get(element, "AXParent")
+            if element is None or not self._belongs(element, record):
+                break
         return None
 
     def _remembered_input(self, target: TargetWindow, record: _WindowRecord, token: Any) -> Any:
@@ -566,6 +588,8 @@ class MacTargetBackend:
         api = self._api
         candidates: list[Any] = []
         unlabelled: list[Any] = []
+        editable_count = 0
+        unlabelled_count = 0
         fallback_allowed = (
             record.target.app.strip().casefold() in _UNLABELLED_AGENT_NAMES
             or record.target.identity.casefold() in _UNLABELLED_AGENT_BUNDLES
@@ -580,26 +604,37 @@ class MacTargetBackend:
             if len(seen) > 3000:
                 raise TargetError("目标界面内容较多，请先点击 Agent 的主输入框再试。")
             if self._is_editable(element) and self._belongs(element, record):
+                editable_count += 1
                 label = self._input_label(element)
                 if any(word in label for word in _AGENT_INPUT):
                     candidates.append(element)
-                elif (
-                    fallback_allowed and api.get(element, "AXRole") == "AXTextArea"
-                    and not any(word in label for word in _NON_CHAT_INPUT)
-                ):
-                    unlabelled.append(element)
+                elif api.get(element, "AXRole") == "AXTextArea" and not any(
+                        word in label for word in _NON_CHAT_INPUT):
+                    unlabelled_count += 1
+                    if fallback_allowed:
+                        unlabelled.append(element)
             pending.extend(api.get(element, "AXChildren", []) or [])
         ranked = sorted((
             (sum(weight for word, weight in _MAIN_INPUT if word in self._input_label(element)), element)
             for element in candidates
         ), key=lambda pair: pair[0], reverse=True)
         if ranked:
-            return None if len(ranked) > 1 and ranked[0][0] == ranked[1][0] else ranked[0][1]
+            if len(ranked) > 1 and ranked[0][0] == ranked[1][0]:
+                self.last_fill_stage = "多个聊天输入框同级"
+                return None
+            return ranked[0][1]
         if len(unlabelled) != 1:
+            if editable_count == 0:
+                self.last_fill_stage = "未暴露可编辑输入框"
+            elif unlabelled_count and not fallback_allowed:
+                self.last_fill_stage = "输入框缺少聊天标识"
+            else:
+                self.last_fill_stage = "未找到唯一聊天输入框"
             return None
         # 网页未聚焦时可能不暴露选区；先要求可靠字符数，聚焦后仍须读回光标。
         count = api.get(unlabelled[0], "AXNumberOfCharacters")
         if not isinstance(count, int) or isinstance(count, bool) or count < 0:
+            self.last_fill_stage = "输入框字符数不可读"
             return None
         return unlabelled[0]
 
@@ -768,6 +803,8 @@ class MacTargetBackend:
 
     @_with_native_pool
     def fill(self, target: TargetWindow, text: str, remembered_focus: FocusToken | None = None) -> str:
+        self.last_fill_stage = "检查目标窗口"
+        self.last_fill_focus_role = "未知"
         if not isinstance(text, str) or not text:
             raise TargetError("没有可填入的文字。")
         record = self._validate(target)
@@ -777,12 +814,11 @@ class MacTargetBackend:
         current = self._focused_input(record)
         originally_focused = current is not None
         if current is None:
+            self.last_fill_stage = "激活目标窗口"
             api.activate(record.app, record.element)
             record = self._wait_focus(target)
             current = self._focused_input(record)
         preserve = originally_focused and remembered_focus is None
-        if not preserve and remembered_focus is None:
-            current = None
         remembered = self._remembered_input(target, record, remembered_focus)
         if remembered_focus is not None:
             preserve = bool(
@@ -794,10 +830,13 @@ class MacTargetBackend:
                 current = None
         if current is None:
             # 用户实际聚焦过的控件可以恢复，即使网页没有给它聊天输入标签。
+            self.last_fill_stage = "查找主输入框"
             current = remembered if remembered is not None else self._main_input(record)
             if current is None:
                 raise TargetError("未找到唯一可编辑的主输入框，请先点击 Agent 输入框再试。")
+            self.last_fill_stage = "聚焦主输入框"
             record = self._focus_input(target, current, remembered=remembered is not None)
+        self.last_fill_stage = "读取目标光标"
         self._assert_focus(target, current)
         selected = self._wait_selection(target, current)
         if (
@@ -814,6 +853,7 @@ class MacTargetBackend:
                 raise TargetError("无法确认目标文字末尾，请先点击 Agent 输入框再试。")
             location = count
         if selected != (location, 0):
+            self.last_fill_stage = "定位目标光标"
             self._assert_focus(target, current)
             if api.settable(current, "AXSelectedTextRange"):
                 api.set_selection(current, location)
@@ -823,10 +863,14 @@ class MacTargetBackend:
                 target, current, location,
                 retry_append_from=selected if not preserve else None,
             )
+        self.last_fill_stage = "最终校验光标"
         self._assert_caret(target, current, location, append=not preserve)
+        self.last_fill_stage = "写入剪贴板"
         api.clipboard(text)
+        self.last_fill_stage = "粘贴到目标"
         self._assert_caret(target, current, location, append=not preserve)
         api.paste()
+        self.last_fill_stage = "已填入"
         return "已填入 Agent 输入框（未发送）。"
 
 

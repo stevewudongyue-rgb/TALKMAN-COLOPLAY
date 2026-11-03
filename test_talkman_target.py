@@ -607,6 +607,7 @@ class TargetTests(unittest.TestCase):
 
     def test_fill_preserves_backend_target_error_details(self):
         backend = FakeBackend()
+        backend.last_fill_stage = "查找主输入框"
         backend.fill = Mock(side_effect=TargetError("目标输入框未获得焦点，已取消填入。"))
         with tempfile.TemporaryDirectory() as directory:
             controller = TargetController(Path(directory), backend=backend)
@@ -614,6 +615,54 @@ class TargetTests(unittest.TestCase):
             results = []
             controller.fill("文字", lambda state, value: results.append((state, value)))
             self.assertEqual(wait_result(results), ("error", "目标输入框未获得焦点，已取消填入。"))
+            self.assertEqual(controller.last_fill_report, "上次填入：Agent · 查找主输入框 · 未完成")
+            self.assertNotIn("文字", controller.last_fill_report)
+            controller.close()
+
+    def test_empty_fill_error_has_visible_message_and_diagnostic_stage(self):
+        backend = FakeBackend()
+        backend.last_fill_stage = "读取目标光标"
+        backend.fill = Mock(side_effect=TargetError())
+        with tempfile.TemporaryDirectory() as directory:
+            controller = TargetController(Path(directory), backend=backend)
+            controller.select(backend.windows[0])
+            results = []
+            controller.fill("私密正文", lambda state, value: results.append((state, value)))
+            state, message = wait_result(results)
+            self.assertEqual(state, "error")
+            self.assertIn("读取目标光标未完成", message)
+            self.assertEqual(controller.last_fill_report, "上次填入：Agent · 读取目标光标 · 未完成")
+            self.assertNotIn("私密正文", controller.last_fill_report)
+            controller.close()
+
+    def test_unrecognized_backend_stage_cannot_enter_diagnostic(self):
+        backend = FakeBackend()
+        backend.last_fill_stage = "私密正文"
+        backend.fill = Mock(side_effect=TargetError("填入失败"))
+        with tempfile.TemporaryDirectory() as directory:
+            controller = TargetController(Path(directory), backend=backend)
+            controller.select(backend.windows[0])
+            results = []
+            controller.fill("私密正文", lambda state, value: results.append((state, value)))
+            self.assertEqual(wait_result(results), ("error", "填入失败"))
+            self.assertEqual(controller.last_fill_report, "上次填入：Agent · 聚焦并填入 · 未完成")
+            controller.close()
+
+    def test_copied_target_diagnostic_includes_last_fill_without_body(self):
+        from talkman_settings_ui import SettingsPanelMixin
+
+        backend = FakeBackend()
+        backend.last_fill_stage = "查找主输入框"
+        backend.fill = Mock(side_effect=TargetError("未找到主输入框"))
+        with tempfile.TemporaryDirectory() as directory:
+            controller = TargetController(Path(directory), backend=backend)
+            controller.select(backend.windows[0])
+            results = []
+            controller.fill("私密正文", lambda state, value: results.append((state, value)))
+            self.assertEqual(wait_result(results)[0], "error")
+            report = SettingsPanelMixin._target_diagnostic_text(SimpleNamespace(target_controller=controller))
+            self.assertIn("上次填入：Agent · 查找主输入框 · 未完成", report)
+            self.assertNotIn("私密正文", report)
             controller.close()
 
     def test_fill_reacquires_input_when_target_is_not_focused(self):

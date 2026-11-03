@@ -2307,7 +2307,7 @@ class TalkManApp(TranslationUIMixin, DeliveryUIMixin, ConventionsUIMixin, AIEdit
         snapshot = self._delivery_snapshot
         self._delivery_snapshot = None
         if state != "ok" or not isinstance(value, FillReceipt):
-            self.status_var.set(str(value))
+            self.status_var.set(str(value) or '目标填入未完成，请在设置中复制诊断。')
             self.button_feedback(self.target_button, '未完成')
             return
         try:

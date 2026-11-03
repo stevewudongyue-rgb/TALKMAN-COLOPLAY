@@ -220,6 +220,7 @@ class MacTargetTests(unittest.TestCase):
         self.root.attributes["AXFocusedUIElement"] = self.window
         self.backend.fill(selected, "离线测试")
         self.assertEqual(self.api.actions[-2:], [("clipboard", "离线测试"), ("paste",)])
+        self.assertEqual(self.backend.last_fill_stage, "已填入")
 
     def test_zcode_does_not_treat_unlabelled_code_editor_as_chat_input(self):
         self.app.update(name="ZCode", bundle="dev.zcode.app", identity="dev.zcode.app")
@@ -228,7 +229,44 @@ class MacTargetTests(unittest.TestCase):
         self.root.attributes["AXFocusedUIElement"] = self.window
         with self.assertRaisesRegex(target.TargetError, "唯一"):
             self.backend.fill(selected, "不能误填")
+        self.assertEqual(self.backend.last_fill_stage, "输入框缺少聊天标识")
         self.assertFalse(any(action[0] in ("set", "clipboard", "paste") for action in self.api.actions))
+
+    def test_zcode_resumed_focused_unlabelled_input_appends_without_caret_token(self):
+        self.app.update(name="ZCode", bundle="dev.zcode.app", identity="dev.zcode.app")
+        selected = self.backend.list_windows()[0]
+        self.editor.attributes["AXDescription"] = ""
+        self.editor.span = (4, 0)
+        self.api.focus(selected.pid, self.window, self.editor)
+        self.api.front = 123
+        self.backend.fill(selected, "测试")
+        self.assertIn(("activate", selected.pid, self.window), self.api.actions)
+        self.assertEqual(self.editor.span, (20, 0))
+        self.assertEqual(self.api.actions[-2:], [("clipboard", "测试"), ("paste",)])
+
+    def test_zcode_resumed_noneditable_focus_does_not_authorize_paste(self):
+        self.app.update(name="ZCode", bundle="dev.zcode.app", identity="dev.zcode.app")
+        selected = self.backend.list_windows()[0]
+        self.editor.attributes["AXDescription"] = ""
+        self.editor.writable.remove("AXValue")
+        self.api.focus(selected.pid, self.window, self.editor)
+        self.api.front = 123
+        with self.assertRaisesRegex(target.TargetError, "唯一"):
+            self.backend.fill(selected, "不能误填")
+        self.assertFalse(any(action[0] in ("clipboard", "paste") for action in self.api.actions))
+
+    def test_focused_text_child_resolves_to_editable_parent(self):
+        child = Element("AXStaticText", parent=self.editor)
+        self.api.focus(self.selected.pid, self.window, child)
+        token = self.backend.capture_focus(self.selected)
+        self.assertIs(token.element, self.editor)
+        self.backend.fill(self.selected, "测试", token)
+        self.assertEqual(self.api.actions[-1], ("paste",))
+
+    def test_focused_button_child_is_not_treated_as_editor_focus(self):
+        child = Element("AXButton", parent=self.editor)
+        self.api.focus(self.selected.pid, self.window, child)
+        self.assertIsNone(self.backend.capture_focus(self.selected))
 
     def test_doubao_localized_names_are_enumerated_without_assuming_bundle_id(self):
         for name in ("豆包", "Doubao", "DOUBAO", "  豆包  ", " Doubao "):

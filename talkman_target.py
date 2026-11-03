@@ -272,6 +272,7 @@ class TargetController:
         self._sync_lease = None
         self._pending_send = None
         self._refresh_report = "尚未刷新目标窗口。"
+        self._last_fill_report = "尚未尝试填入。"
         self._thread = threading.Thread(target=self._run, name="TalkManTarget", daemon=True)
         self._thread.start()
 
@@ -316,6 +317,32 @@ class TargetController:
     def refresh_report(self) -> str:
         with self._lock:
             return self._refresh_report
+
+    @property
+    def last_fill_report(self) -> str:
+        with self._lock:
+            return self._last_fill_report
+
+    def _record_fill(self, stage: str, result: str, target: TargetWindow | None = None) -> None:
+        name = target.app if target is not None else "未选目标"
+        with self._lock:
+            self._last_fill_report = f"上次填入：{name} · {stage} · {result}"
+
+    def _fill_stage(self, stage: str) -> str:
+        if stage != "聚焦并填入":
+            return stage
+        backend_stage = getattr(self.backend, "last_fill_stage", None)
+        known = {"检查目标窗口", "激活目标窗口", "查找主输入框", "聚焦主输入框",
+                 "读取目标光标", "定位目标光标", "最终校验光标", "写入剪贴板", "粘贴到目标",
+                 "多个聊天输入框同级", "未暴露可编辑输入框", "输入框缺少聊天标识",
+                 "未找到唯一聊天输入框", "输入框字符数不可读"}
+        if not isinstance(backend_stage, str) or backend_stage not in known:
+            return stage
+        focus_role = getattr(self.backend, "last_fill_focus_role", None)
+        roles = {"窗口", "网页区域", "容器", "文字", "多行文字框", "单行文字框", "其他控件"}
+        if backend_stage in {"未暴露可编辑输入框", "输入框缺少聊天标识", "未找到唯一聊天输入框"} and focus_role in roles:
+            return f"{backend_stage}（焦点：{focus_role}）"
+        return backend_stage
 
     def _emit(self, callback: Callback | None, state: str, value: Any) -> None:
         if callback:
@@ -677,8 +704,10 @@ class TargetController:
 
     def _fill(self, callback: Callback | None, text: str, receipt=False, expected_target=None,
               requested_epoch=None, allow_send_confirmation=True) -> None:
+        stage = "检查目标选择"
         with self._lock:
             if requested_epoch is not None and requested_epoch != self._sync_epoch:
+                self._record_fill(stage, "未完成")
                 self._emit(callback, 'error', '目标已切换，本次未填入。')
                 return
             self._pending_send = None
@@ -687,12 +716,14 @@ class TargetController:
             token = self._focus_token
             persisted = self.selection.selected
         if expected_target is not None and (target is None or target.session_key() != expected_target):
+            self._record_fill(stage, "未完成", target)
             self._emit(callback, 'error', '目标已变化，本次未填入，请重新长按旋钮。')
             return
         # 应用重启后 UI 只加载了持久化标签，第一次点“填入 Agent”时不应
         # 强迫用户再打开设置页刷新。后台直接枚举并恢复唯一匹配窗口。
         if target is None and persisted:
             try:
+                stage = "恢复已选目标窗口"
                 windows = _as_windows(self.backend.list_windows())
                 target = self._resolve(windows)
                 with self._lock:
@@ -701,15 +732,18 @@ class TargetController:
                     if target is None:
                         self._focus_token = None
             except TargetError as exc:
-                self._emit(callback, "error", str(exc))
+                self._record_fill(stage, "未完成", target)
+                self._emit(callback, "error", str(exc) or "恢复目标窗口未完成，请在设置中复制诊断。")
                 return
             except Exception:
                 target = None
         if target is None:
+            self._record_fill(stage, "未完成")
             self._emit(callback, "error", "目标输入框不可用，请点「填入」旁的目标下拉，刷新并重新选择。")
             return
         try:
             if receipt:
+                stage = "核验目标窗口"
                 validate = getattr(self.backend, "validate_window", None)
                 if validate is not None:
                     current = validate(target)
@@ -721,6 +755,7 @@ class TargetController:
                             raise TargetError('目标已切换，本次未填入。')
                         # 验证后的标题可能比列表旧标题新；保存本次真实窗口快照。
                         self._selected = target
+            stage = "检查目标焦点"
             focus = self._capture_focus(target)
             if focus is False:
                 raise TargetError("目标输入框已失去焦点，请重新点击目标输入框后再试。")
@@ -730,18 +765,28 @@ class TargetController:
             # token 为空时交给平台后端重新寻找并聚焦主输入框；只有窗口会话
             # 已失效（focus is False）才应直接返回不可用提示。
             snapshot = self._prepare_send_snapshot(target) if receipt and allow_send_confirmation else None
+            stage = "聚焦并填入"
             result = self.backend.fill(target, text, token)
             message = result if result is not None else "已填入目标输入框。"
             if receipt:
+                stage = "核验发送确认"
                 send_token = self._arm_filled_send(target, text, snapshot, epoch) if allow_send_confirmation else ''
                 if allow_send_confirmation and not send_token:
                     message = str(message) + ' 无法核对目标正文，请在目标内手动发送。'
                 message = FillReceipt(str(message), text, target.app, target.title,
                                       datetime.now().astimezone().isoformat(timespec="seconds"), send_token=send_token)
+            result_note = "已填入"
+            if receipt and allow_send_confirmation:
+                result_note += "；发送确认可用" if send_token else "；未取得发送确认"
+            self._record_fill("目标输入框", result_note, target)
             self._emit(callback, "ok", message)
         except TargetError as exc:
-            self._emit(callback, "error", str(exc))
+            stage = self._fill_stage(stage)
+            self._record_fill(stage, "未完成", target)
+            self._emit(callback, "error", str(exc) or f"{stage}未完成，请在设置中复制诊断。")
         except Exception:
+            stage = self._fill_stage(stage)
+            self._record_fill(stage, "未完成（程序异常）", target)
             self._emit(callback, "error", "目标输入框不可用，请重新选择后再试。")
 
     def _run(self) -> None:
