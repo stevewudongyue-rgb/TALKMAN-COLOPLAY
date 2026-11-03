@@ -162,6 +162,9 @@ class ColoPlayController:
 
     def set_active(self, active):
         if not active:
+            picker = getattr(self.app, 'input_picker', None)
+            if self.active and picker and picker.active and picker.source == 'device':
+                picker.cancel()
             if self.active: self.cancel_device_send()
             self.scroll.cancel()
             self.cancel_navigation()
@@ -199,6 +202,8 @@ class ColoPlayController:
                 return 'opening', '正在打开麦克风'
             return 'recording', '说修改要求' if a.voice_mode == 'rewrite' else '正在录音'
         if a.busy or a.auto_running: return 'processing', '正在处理'
+        if getattr(a, 'input_picker', None) and a.input_picker.active:
+            return 'input_select', '选择输入位置'
         return 'idle', '就绪'
 
     def stamp(self):
@@ -209,7 +214,8 @@ class ColoPlayController:
                 target.session_key() if target else None, a.get_selection(), a.text.index('insert'),
                 self.cycling or bool(self.target_due) or self.target_scanning,
                 a.sync_mode_var.get(), str(a.ai_review) if a.ai_review is not None else None, editor,
-                (a.pending_delivery or {}).get('token',''))
+                (a.pending_delivery or {}).get('token',''),
+                a.input_picker.stamp() if getattr(a, 'input_picker', None) else None)
 
     def cancel_device_send(self):
         self.delivery_epoch += 1
@@ -254,6 +260,18 @@ class ColoPlayController:
         a, phase = self.app, self.phase()[0]
         if a.target_filling or a.convention_panel is not None:
             return None
+        picker = getattr(a, 'input_picker', None)
+        if picker and picker.active:
+            if picker.confirming:
+                return None
+            if action == 'cancel_delete': return 'input_cancel'
+            if action in ('record', 'rewrite') and phase in ('opening', 'recording'): return 'stop'
+            if action == 'rewrite' and not a.busy: return 'rewrite'
+            if a.busy and getattr(a, 'voice_input_navigation', False): return None
+            if action in ('target_previous', 'target_next'): return action
+            return {'previous': 'input_previous', 'next': 'input_next', 'knob': 'input_confirm'}.get(action)
+        if (self.target_due or self.target_scanning) and action == 'cancel_delete':
+            return 'input_cancel'
         if self.device_send_pending():
             return {'ai': 'send', 'cancel_delete': 'cancel_send',
                     'record': 'record', 'rewrite': 'rewrite'}.get(action) if phase == 'idle' else None
@@ -277,7 +295,8 @@ class ColoPlayController:
             return 'select'
         if action == 'send_current':
             return action if (phase == 'idle' and not self.target_due and not self.target_scanning
-                              and a.target_controller and a.target_controller.selected) else None
+                              and a.target_controller and a.target_controller.selected
+                              and a.target_controller.selected_input is None) else None
         if action in ('record', 'rewrite'):
             return 'stop' if phase in ('opening','recording') else action if phase == 'idle' else None
         if action == 'ai': return 'confirm_review' if phase == 'review' else 'ai' if phase == 'idle' else None
@@ -341,9 +360,14 @@ class ColoPlayController:
             self.scroll.cancel()
         if semantic not in ('target_previous', 'target_next', 'target_commit'):
             self.cancel_navigation()
-        if semantic in ('record', 'rewrite', 'ai', 'move_previous', 'move_next'):
+        if semantic in ('record', 'rewrite', 'ai', 'move_previous', 'move_next') and not a.input_picker.active:
             a.window_controller.begin_device_edit()
-        if semantic in SCROLL_ACTIONS: self.scroll.submit(semantic)
+        if semantic in ('input_previous', 'input_next'):
+            direction = steps if semantic == 'input_next' else -steps
+            a.input_picker.step(-direction if self.preferences['reverse_rotation'] else direction)
+        elif semantic == 'input_confirm': a.input_picker.confirm()
+        elif semantic == 'input_cancel': a.input_picker.cancel()
+        elif semantic in SCROLL_ACTIONS: self.scroll.submit(semantic)
         elif semantic in ('move_previous', 'move_next'):
             self.editor_focus.move(steps if semantic=='move_next' else -steps)
         elif semantic in ('review_previous','review_next'):
@@ -423,6 +447,10 @@ class ColoPlayController:
 
     def preview_target(self, direction):
         now=time.monotonic()
+        draft_target = self.app.input_picker.target if self.app.input_picker.active else None
+        self.app.input_picker.cancel(quiet=True)
+        self.app.sync_mode_var.set(False)
+        self.app.live_sync.configure(False)
         self.app.disarm_delivery()
         self.highlight.hide()
         self.target_cancel.set()
@@ -445,13 +473,13 @@ class ColoPlayController:
             serial=self.target_scan_serial
             controller.refresh(lambda state,value:self.events.put(('target_scan',state,(serial,value))))
             return
-        current=self.target_preview or controller.selected
+        current=self.target_preview or draft_target or controller.selected
         windows=self.target_candidates
         index=next((i for i,w in enumerate(windows) if current and w.session_key()==current.session_key()),
                    -1 if direction>0 else 0)
         self.target_preview=windows[(index+direction)%len(windows)]
         self.target_due=now
-        self.app.status_var.set('预选目标：'+self.target_preview.app+' · 松开右下选定')
+        self.app.status_var.set('预选 Agent：'+self.target_preview.app+' · 松开右下后选择输入位置')
 
     def commit_target(self):
         if self.target_scanning:
@@ -464,13 +492,8 @@ class ColoPlayController:
         target=self.target_preview
         self.target_due=0
         if not controller or target is None:return
-        self.cycling=True
-        generation=self.target_generation
-        self.target_cancel=threading.Event()
-        cancelled=self.target_cancel
-        controller.cycle(1,lambda state,value:self.events.put(('cycle',state,(generation,value))),
-                         expected_target=target if sys.platform=='darwin' else target.session_key(),cancelled=cancelled,
-                         commit_preview=sys.platform=='darwin')
+        self.cancel_navigation()
+        self.app.input_picker.begin(target, source='device')
 
     def backward_delete(self):
         a = self.app
@@ -533,6 +556,10 @@ class ColoPlayController:
             phase, title = 'blocked', '桌面设置中'
             target_name = '关闭后继续操作'
         return dict(ready=self.ready() or (self.connected() and paused), phase=phase, title=title,
+                    input_selecting=a.input_picker.active,
+                    input_index=a.input_picker.index+1, input_count=len(a.input_picker.regions),
+                    input_error=bool(a.input_picker.error), input_loading=a.input_picker.loading or a.input_picker.confirming,
+                    input_target=a.input_picker.target.app if a.input_picker.active else '',
                     confirmation=self.confirmation_marker(), target_marker=self.target_marker(),
                     selecting=self.editor_focus.selecting,
                     send_seconds=max(1,int((a.pending_delivery['expires']-time.monotonic())+.999)) if self.device_send_pending() else 0,
@@ -594,6 +621,8 @@ class ColoPlayController:
                 self.intent.cancel()
             elif peer == self.peer:
                 if kind in ('disconnected', 'exit'):
+                    if self.app.input_picker.active and self.app.input_picker.source == 'device':
+                        self.app.input_picker.cancel()
                     self.peer = None
                     self.intent.cancel()
                     self.cancel_navigation()
@@ -603,6 +632,7 @@ class ColoPlayController:
         if self.usb_bridge: self.usb_bridge.poll()
         paused = self.paused()
         if paused and not getattr(self, '_was_paused', False):
+            self.app.input_picker.cancel(quiet=True)
             self.intent.cancel()
             self.cancel_navigation()
             self.cancel_device_send()

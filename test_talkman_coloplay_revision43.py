@@ -203,15 +203,16 @@ class Interaction43Tests(unittest.TestCase):
         d.tick();a.after_cancel(d.job);d.job=None
         a.target_controller.cycle.assert_not_called()
         s.feed(0,500)
-        expected=windows[2] if sys.platform=='darwin' else windows[2].session_key()
-        self.assertEqual(a.target_controller.cycle.call_args.kwargs['expected_target'],expected)
-        s.feed(0,600);a.target_controller.cycle.assert_called_once()
+        self.assertEqual(a.target_controller.begin_inputs.call_args.args[0], windows[2])
+        self.assertEqual(a.target_controller.selected, windows[0])
+        s.feed(0,600);a.target_controller.begin_inputs.assert_called_once()
+        a.target_controller.cycle.assert_not_called()
         d.local_session=None
 
     def test_send_current_uses_selected_target_and_does_not_paste_editor(self):
         a,d=self.app,self.device;a.set_text('不应填入这段')
         a.target_controller.close();target=TargetWindow(1,2,'Codex','测试','x')
-        a.target_controller=Mock(selected=target);d.active=True
+        a.target_controller=Mock(selected=target,selected_input=None);d.active=True
         s=LocalDeviceSession(d);s.feed(8,100);s.feed(24,150)
         a.target_controller.send_current.assert_not_called()
         s.feed(8,250);s.feed(0,300)

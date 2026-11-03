@@ -68,24 +68,22 @@ SCENES = (
          Scene('继续按住并旋转，候选变为 Codex。', (3, 4), view='target', status='Codex', turn=True),
          Scene('继续转到下一页，可以选择更多目标。', (3, 4), view='target', status='千问', turn=True)),
         (Scene('按住右下时，只预览候选目标。', (3,), view='target', status='豆包'),
-         Scene('松开右下，才选定最后高亮的窗口。', view='target', status='已选定豆包'),
-         Scene('Windows 在目标窗口周围显示绿色外框。', view='target', status='目标已高亮')),
-        (Scene('先按住右下，再按左上。', (0, 3), view='window', status='展开编辑'),
-         Scene('TalkMan 收起，露出目标窗口。', view='window', status='贴边收起'),
-         Scene('再按同一组合，呼出 TalkMan。', (0, 3), view='window', status='展开编辑')),
+         Scene('松开右下，开始选择具体输入位置。', view='positions', status='位置 1'),
+         Scene('旋转切换到位置 2，点按旋钮才确认。', (4,), view='positions', status='位置 2', turn=True)),
+        (Scene('右上取消选择，原目标不变。', (1,), view='positions', status='已取消'),
+         Scene('右下＋左下，说“选择第二个输入框”。', (2,3), view='positions', status='位置 2'),
+         Scene('再说“确认这个位置”，完成同一轮选择。', (2,3), view='positions', status='已确认位置 2')),
     ),
     (
         (Scene('长按旋钮至少 0.8 秒。', (4,), view='target', status='长按进度'),
-         Scene('松开旋钮：只填入，尚未发送。', view='target', status='已填入 · 5 秒'),
-         Scene('检查好后，短按左上才发送。', (0,), view='target', status='已发送')),
-        (Scene('填入成功后，进入 5 秒确认期。', view='target', status='已填入 · 5 秒'),
-         Scene('点左下可立即开始新录入，不必等倒计时。', (2,), text='', status='新一轮录入'),
-         Scene('右下＋左下开始新指令，上次发送确认取消。', (2, 3), status='新一轮指令'),
-         Scene('不再操作则到期，原文字留在目标框。', view='target', status='已超时 · 未发送')),
-        (Scene('平时先按住右下，再短按旋钮。', (3, 4), view='target', status='目标已有文字'),
-         Scene('按住旋钮时转动，会取消本次发送。', (3, 4), view='target', status='发送已取消', turn=True),
-         Scene('重新按组合并松开旋钮，才执行发送。', (3,), view='target', status='已发送'),
-         Scene('发送成功，回到原来的贴边收起状态。', view='window', status='贴边收起')),
+         Scene('松开旋钮：文字进入确认过的输入区域。', view='positions', status='已填入位置 2'),
+         Scene('此位置请在目标应用内提交。', view='target', status='尚未发送')),
+        (Scene('按住旋钮时转动，取消本次填入。', (4,), view='positions', status='已取消', turn=True),
+         Scene('输入区域消失后，停止填入并提示重选。', view='positions', status='位置已失效'),
+         Scene('回到位置选择，重新确认编号。', (4,), view='positions', status='位置 1')),
+        (Scene('旧目标通过正文核验后，仍有发送确认。', view='target', status='旧目标 · 发送确认'),
+         Scene('新选位置：暂不开放回车发送。', view='positions', status='仅填入'),
+         Scene('新选位置：实时同步保持关闭。', view='positions', status='仅填入')),
     ),
 )
 
@@ -203,6 +201,12 @@ class GuidePreview(tk.Frame):
             c.create_line(right-6, y+36, right-6, bottom-12, fill=p['editor_border'], width=2)
             if s.turn:
                 c.create_line(right-6, bottom-40, right-6, bottom-12, fill=p['signal'], width=2)
+        elif s.view == 'positions':
+            for i in range(2):
+                yy=y+34+i*37
+                active=('2' in s.status and i==1) or ('1' in s.status and i==0)
+                c.create_rectangle(x+8,yy,right-8,yy+29,outline=p['signal'] if active else p['muted'],width=2 if active else 1)
+                c.create_text(x+16,yy+14,anchor='w',text=f'{i+1}  输入区域',fill=p['signal'] if active else p['muted'],font=font)
         elif s.view == 'target':
             # 预选场景显示四角 Agent；填入场景显示目标中的文字与明确状态。
             if s.status in ('豆包', 'Codex', '千问'):

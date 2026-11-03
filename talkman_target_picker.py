@@ -168,7 +168,6 @@ class TargetPicker:
         except Exception as error:
             self.feedback.set(str(error) or '目标选择失败，请刷新后重试。')
             return 'break'
-        self.close(restore_focus=True)
         return 'break'
 
     def outside_click(self, event):

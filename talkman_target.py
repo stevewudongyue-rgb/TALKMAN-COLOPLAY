@@ -19,6 +19,7 @@ import threading
 import time
 import uuid
 from typing import Any, Callable, Iterable
+from talkman_input_locations import InputLocationControllerMixin
 
 
 TARGET_FILE = "target.json"
@@ -158,7 +159,7 @@ class TargetSelection:
 
     @staticmethod
     def _clean(value: dict[str, Any]) -> dict[str, str]:
-        allowed = ("app", "title", "identity")
+        allowed = ("app", "title", "identity", "input_required")
         return {key: str(value.get(key, "") or "") for key in allowed if value.get(key)}
 
     @property
@@ -266,7 +267,7 @@ class _UnsupportedBackend:
 Callback = Callable[[str, Any], None]
 
 
-class TargetController:
+class TargetController(InputLocationControllerMixin):
     """目标窗口 worker。
 
     所有后端调用都在同一线程发生，以满足 Windows UIA/COM apartment 要求。
@@ -292,6 +293,10 @@ class TargetController:
         self._refresh_report = "尚未刷新目标窗口。"
         self._last_fill_report = "尚未尝试填入。"
         self._last_send_report = "尚未核验填入后的发送确认。"
+        self._chosen_input = None
+        self._input_selecting = False
+        self._input_draft = None
+        self._input_generation = 0
         self._thread = threading.Thread(target=self._run, name="TalkManTarget", daemon=True)
         self._thread.start()
 
@@ -318,6 +323,8 @@ class TargetController:
     def label(self) -> str:
         with self._lock:
             if self._selected:
+                if self._chosen_input:
+                    return f'{self._selected.app} · 位置 {self._chosen_input[1].number}'
                 return self._selected.display_name()
             metadata = self.selection.metadata
             return str(metadata.get("title") or metadata.get("app") or "未选择目标输入框")
@@ -473,6 +480,8 @@ class TargetController:
         if target.hwnd is None and not target.identity and not target.title:
             raise TargetError("请选择一个有效的目标窗口。")
         with self._lock:
+            self.cancel_inputs()
+            self._chosen_input = None
             self._selected = target
             self._sync_epoch += 1
             self._focus_token = None
@@ -482,6 +491,8 @@ class TargetController:
 
     def clear(self) -> None:
         with self._lock:
+            self.cancel_inputs()
+            self._chosen_input = None
             self._selected = None
             self._sync_epoch += 1
             self._focus_token = None
@@ -536,6 +547,8 @@ class TargetController:
     def _send_current(self, callback, request):
         epoch, expected_target, expires, cancelled = request
         try:
+            if self.input_selecting or self.selected_input is not None or self.selection.metadata.get('input_required'):
+                raise TargetError('所选输入位置的提交方式尚未验证，请在目标内确认；本次未发送。')
             with self._lock:
                 target = self._selected
                 self._pending_send = None
@@ -627,7 +640,7 @@ class TargetController:
             self._record_send_check('填入前', self._send_read_reason(error))
             return None
 
-    def _arm_filled_send(self, target, text, snapshot, epoch):
+    def _arm_filled_send(self, target, text, snapshot, epoch, *, allow_send=True):
         if snapshot is None:
             return ''
         handle, before = snapshot.handle, snapshot.before
@@ -669,10 +682,11 @@ class TargetController:
                         if self._stop.is_set() or epoch != self._sync_epoch or self._selected != target:
                             self._record_send_check('填入后', '目标或操作已变化', snapshot=snapshot, text=text, after=after, attempts=attempt+1)
                             return ''
-                        self._pending_send = (token, epoch, target, handle, after, time.monotonic()+60)
+                        if allow_send:
+                            self._pending_send = (token, epoch, target, handle, after, time.monotonic()+60)
                     reason = '空框提示已消失，完整正文与本次填入一致' if empty_match else '已核对精确插入，保留原有正文'
                     self._record_send_check('通过', reason, snapshot=snapshot, text=text, after=after, attempts=attempt+1)
-                    return token
+                    return token if allow_send else ''
                 if attempt < 4:
                     time.sleep(.08)
             reason = ('正文返回类型无效' if not isinstance(after, str) else
@@ -694,6 +708,8 @@ class TargetController:
         def current():
             return not self._stop.is_set() and epoch == self._sync_epoch
         try:
+            if self.input_selecting or self.selected_input is not None or self.selection.metadata.get('input_required'):
+                raise TargetError('指定输入位置当前仅支持单次填入，请关闭实时同步。')
             if not current():
                 raise TargetError('同步已停止。')
             if target is None:
@@ -764,7 +780,8 @@ class TargetController:
             selected = self._resolve(windows)
             with self._lock:
                 self._windows = windows
-                self._selected = selected
+                if not self._chosen_input and not self._input_selecting:
+                    self._selected = selected
                 if selected is None:
                     self._focus_token = None
             self._record_refresh(count=len(windows))
@@ -778,6 +795,7 @@ class TargetController:
             self._emit(callback, "error", message)
 
     def _capture_focus(self, target: TargetWindow) -> Any:
+        self._bind_chosen_input(target)
         method = getattr(self.backend, "capture_focus", None)
         if method is None:
             raise TargetError(UNSUPPORTED_MESSAGE)
@@ -788,6 +806,8 @@ class TargetController:
             return method(target.hwnd)
 
     def _monitor(self) -> None:
+        if self.input_selecting:
+            return
         now = time.monotonic()
         if now - self._last_focus_check < 0.3:
             return
@@ -812,6 +832,12 @@ class TargetController:
         stage = "检查目标选择"
         self._record_send_check('尚未开始' if receipt and allow_send_confirmation else '未启用', '本次尚无发送确认')
         with self._lock:
+            if self.input_selecting:
+                self._emit(callback, 'error', '请先确认或取消输入位置选择，本次未填入。')
+                return
+            if not self._chosen_input and self.selection.metadata.get('input_required'):
+                self._emit(callback, 'error', '请重新确认输入位置；上次的临时位置不跨重启恢复。')
+                return
             if requested_epoch is not None and requested_epoch != self._sync_epoch:
                 self._record_fill(stage, "未完成")
                 self._emit(callback, 'error', '目标已切换，本次未填入。')
@@ -872,12 +898,18 @@ class TargetController:
             # 已失效（focus is False）才应直接返回不可用提示。
             snapshot = self._prepare_send_snapshot(target) if receipt and allow_send_confirmation else None
             stage = "聚焦并填入"
+            with self._lock:
+                if epoch != self._sync_epoch or self.input_selecting:
+                    raise TargetError('目标选择已变化，本次未填入。')
             result = self.backend.fill(target, text, token)
             message = result if result is not None else "已填入目标输入框。"
             if receipt:
                 stage = "核验发送确认"
-                send_token = self._arm_filled_send(target, text, snapshot, epoch) if allow_send_confirmation else ''
-                if allow_send_confirmation and not send_token:
+                specific_input = self.selected_input
+                send_token = self._arm_filled_send(target, text, snapshot, epoch, allow_send=specific_input is None) if allow_send_confirmation else ''
+                if specific_input is not None:
+                    message = str(message) + f' 位置 {specific_input.number} 的提交方式尚未验证，请在目标内确认。'
+                elif allow_send_confirmation and not send_token:
                     message = str(message) + ' 无法核对目标正文，请在目标内手动发送。'
                 message = FillReceipt(str(message), text, target.app, target.title,
                                       datetime.now().astimezone().isoformat(timespec="seconds"), send_token=send_token)
@@ -905,6 +937,9 @@ class TargetController:
                     continue
                 if command == "close":
                     break
+                if command.startswith('input_'):
+                    self._input_command(command, callback, value)
+                    continue
                 if command == "refresh":
                     self._refresh(callback)
                 elif command == 'cycle':

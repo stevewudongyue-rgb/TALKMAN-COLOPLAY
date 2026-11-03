@@ -231,6 +231,8 @@ function _draw()
  local buttons={}
  for i=0,7 do buttons[i]=btn(i) end
  TMDraw({now=now(),ready=live(),phase=state.phase,title=state.title,
+  input_selecting=state.input_selecting,input_index=state.input_index,input_count=state.input_count,
+  input_target=state.input_target,input_error=state.input_error,input_loading=state.input_loading,
   editor_focused=state.editor_focused,selection_count=state.selection_count,selecting=state.selecting,send_seconds=state.send_seconds,
   target=state.target,target_choice=state.target_choice,target_view=state.target_view,cycling=state.cycling,
   target_previous=state.target_previous,target_next=state.target_next,

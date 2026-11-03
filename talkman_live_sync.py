@@ -30,6 +30,8 @@ class LiveSync:
             self.job = None
 
     def changed(self):
+        if getattr(self.app, 'input_picker', None) and self.app.input_picker.active:
+            return
         if not self.app.sync_mode_var.get() or self.paused or self.app.closing:
             return
         if getattr(self.app, 'ai_review', None) is not None or getattr(self.app, 'convention_panel', None) is not None:
@@ -42,6 +44,9 @@ class LiveSync:
     def flush(self, send=False):
         self.cancel_timer()
         a = self.app
+        if getattr(a, 'input_picker', None) and a.input_picker.active:
+            a.status_var.set('请先完成输入位置选择。')
+            return
         if not a.sync_mode_var.get() or self.paused or a.closing or self.inflight:
             return
         if getattr(a, 'ai_review', None) is not None or getattr(a, 'convention_panel', None) is not None or a.busy:

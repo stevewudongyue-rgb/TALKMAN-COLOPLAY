@@ -207,6 +207,16 @@ class _NativeAPI:
             raise TargetError("无法定位目标输入框光标，已取消填入。")
         self.set(element, "AXSelectedTextRange", value)
 
+    def input_rect(self, element):
+        try:
+            ok, position = self.ax.AXValueGetValue(self.get(element, 'AXPosition'), self.ax.kAXValueCGPointType, None)
+            sized, size = self.ax.AXValueGetValue(self.get(element, 'AXSize'), self.ax.kAXValueCGSizeType, None)
+            if ok and sized:
+                return tuple(map(int, (position.x, position.y, size.width, size.height)))
+        except Exception:
+            pass
+        return None
+
     def clipboard(self, text: str) -> None:
         board = self.appkit.NSPasteboard.generalPasteboard()
         board.clearContents()
@@ -583,6 +593,10 @@ class MacTargetBackend:
                 break
             seen.append(element)
             if self._is_editable(element):
+                if getattr(self, '_bound_input', None) is not None:
+                    chosen = self._bound_element(record.target)
+                    if not self._api.equal(chosen, element):
+                        return None
                 return element
             if role not in _FOCUSED_TEXT_ROLES:
                 break
@@ -592,6 +606,10 @@ class MacTargetBackend:
         return None
 
     def _remembered_input(self, target: TargetWindow, record: _WindowRecord, token: Any) -> Any:
+        if getattr(self, '_bound_input', None) is not None:
+            chosen = self._bound_element(target)
+            if not isinstance(token, FocusToken) or not self._api.equal(token.element, chosen):
+                return None
         if (
             not isinstance(token, FocusToken)
             or token.window_id != target.hwnd
@@ -605,6 +623,8 @@ class MacTargetBackend:
         return token.element
 
     def _main_input(self, record: _WindowRecord) -> Any:
+        if getattr(self, '_bound_input', None) is not None:
+            return self._bound_element(record.target)
         api = self._api
         candidates: list[Any] = []
         unlabelled: list[Any] = []
@@ -821,6 +841,63 @@ class MacTargetBackend:
         if element is None or (require_write and not self._api.settable(element, 'AXValue')):
             raise TargetError('此输入框不支持后台同步，请关闭同步后使用「填入」。')
         return element, str(self._api.get(record.element, 'AXTitle', '') or '')
+
+    @_with_native_pool
+    def list_inputs(self, target, *, _recover=True):
+        from talkman_input_locations import valid_rect
+        record = self._validate(target)
+        if record is None:
+            raise TargetError('目标窗口已失效，请重新选择。')
+        api = self._api
+        entries, seen, pending = [], {}, [record.element]
+        seen_count = 0
+        while pending:
+            element = pending.pop()
+            try:
+                key = hash(element)
+            except TypeError:
+                key = 0
+            bucket = seen.setdefault(key, [])
+            if any(api.equal(element, other) for other in bucket):
+                continue
+            bucket.append(element)
+            seen_count += 1
+            if seen_count > 3000:
+                raise TargetError('目标页面过于复杂，请展开所需输入区域后重选。')
+            if self._is_editable(element) and self._belongs(element, record):
+                rect = api.input_rect(element)
+                if valid_rect(rect):
+                    entries.append(((target, str(api.get(record.element, 'AXTitle', '') or ''), element), rect))
+                    if len(entries) > 32:
+                        raise TargetError('输入区域超过 32 个，请缩小目标页面范围后重选。')
+            pending.extend(list(api.get(element, 'AXChildren', []) or []))
+        if not entries and _recover:
+            # 沿用已验证的 Electron 延迟启用逻辑；仅重扫一次，不猜主框。
+            self._recover_input_tree(target, record, allow_focused=False)
+            return self.list_inputs(target, _recover=False)
+        return sorted(entries, key=lambda row: (row[1][1], row[1][0]))
+
+    @_with_native_pool
+    def inspect_input(self, target, handle):
+        from talkman_input_locations import valid_rect
+        previous, title, element = handle
+        record = self._validate(target)
+        if (record is None or previous != target or str(self._api.get(record.element, 'AXTitle', '') or '') != title
+                or not self._belongs(element, record) or not self._is_editable(element)):
+            raise TargetError('所选输入区域已消失或窗口已变化，请重新选择输入位置。')
+        rect = self._api.input_rect(element)
+        if not valid_rect(rect):
+            raise TargetError('所选输入区域已不可见，请重新选择输入位置。')
+        return rect
+
+    def bind_input(self, target, handle):
+        self._bound_input = handle
+        if handle is not None:
+            self.inspect_input(target, handle)
+
+    def _bound_element(self, target):
+        self.inspect_input(target, self._bound_input)
+        return self._bound_input[2]
 
     @_with_native_pool
     def read_sync(self, target, handle, *, require_write=True):

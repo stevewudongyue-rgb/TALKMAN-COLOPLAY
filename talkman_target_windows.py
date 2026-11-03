@@ -14,6 +14,7 @@ from dataclasses import dataclass
 from typing import Any, Iterable, Optional
 
 from talkman_target import TargetError, DeliveryReadError, SendSnapshot
+from talkman_input_locations import valid_rect
 
 
 @dataclass(frozen=True)
@@ -135,6 +136,7 @@ class WindowsTargetBackend:
         self._uia = None
         self._uia_api = None
         self._com_initialized = False
+        self._bound_input = None
         self._excluded_apps = {str(x).casefold() for x in (excluded_apps or ())}
 
     def _ensure_uia(self) -> Any:
@@ -297,6 +299,15 @@ class WindowsTargetBackend:
 
     def _find_editable(self, window: TargetWindow, *, focused_only: bool = False) -> Any:
         root = self._window_element(window)
+        if self._bound_input is not None:
+            chosen = self._bound_element(window)
+            if not focused_only:
+                return chosen
+            try:
+                focus = self._ensure_uia().GetFocusedElement()
+                return chosen if focus is not None and self._uia.CompareElements(focus, chosen) else None
+            except Exception:
+                return None
         if focused_only:
             try:
                 focused = self._uia.GetFocusedElement()
@@ -327,6 +338,62 @@ class WindowsTargetBackend:
         if len(ranked) > 1 and ranked[0][0] == ranked[1][0]:
             return None
         return ranked[0][1]
+
+    @staticmethod
+    def _element_rect(element):
+        rect = getattr(element, 'CurrentBoundingRectangle', None)
+        if rect is None:
+            return None
+        if hasattr(rect, 'left'):
+            return tuple(map(int, (rect.left, rect.top, rect.right-rect.left, rect.bottom-rect.top)))
+        return None
+
+    def list_inputs(self, window):
+        valid = self.validate_window(window)
+        if valid is None:
+            raise TargetError('目标窗口已失效，请重新选择。')
+        root = self._window_element(valid)
+        entries = []
+        seen = []
+        for control in (self._CONTROL_EDIT, self._CONTROL_DOCUMENT, self._CONTROL_GROUP):
+            condition = self._uia.CreatePropertyCondition(self._PROPERTY_CONTROL_TYPE, control)
+            found = root.FindAll(self._TREE_DESCENDANTS, condition)
+            for element in self._collection_items(found):
+                if not self._is_editable(element) or not self._is_descendant_of(element, root):
+                    continue
+                if any(self._uia.CompareElements(element, other) for other in seen):
+                    continue
+                rect = self._element_rect(element)
+                if not valid_rect(rect):
+                    continue
+                seen.append(element)
+                runtime = tuple(element.GetRuntimeId())
+                handle = (valid.id, valid.pid, valid.identity, valid.title, element, runtime)
+                entries.append((handle, rect))
+                if len(entries) > 32:
+                    raise TargetError('输入区域超过 32 个，请缩小目标页面范围后重选。')
+        return sorted(entries, key=lambda row: (row[1][1], row[1][0]))
+
+    def inspect_input(self, window, handle):
+        valid = self.validate_window(window)
+        hwnd, pid, identity, title, element, runtime = handle
+        if (valid is None or (valid.id, valid.pid, valid.identity, valid.title) != (hwnd, pid, identity, title)
+                or tuple(element.GetRuntimeId()) != runtime or not self._is_editable(element)
+                or not self._is_descendant_of(element, self._window_element(valid))):
+            raise TargetError('所选输入区域已消失或窗口已变化，请重新选择输入位置。')
+        rect = self._element_rect(element)
+        if not valid_rect(rect):
+            raise TargetError('所选输入区域已不可见，请重新选择输入位置。')
+        return rect
+
+    def bind_input(self, window, handle):
+        self._bound_input = handle
+        if handle is not None:
+            self.inspect_input(window, handle)
+
+    def _bound_element(self, window):
+        self.inspect_input(window, self._bound_input)
+        return self._bound_input[4]
 
     def _is_descendant_of(self, element: Any, root: Any) -> bool:
         """确认无原生 HWND 的 UIA 控件确实位于目标窗口树下。"""

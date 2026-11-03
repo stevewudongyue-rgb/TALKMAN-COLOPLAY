@@ -37,6 +37,7 @@ from talkman_editor import RuledText
 from talkman_window import DesktopWindowController
 from talkman_global_hotkeys import voice_bindings
 from talkman_target_picker import TargetPicker
+from talkman_input_picker import InputPicker
 from talkman_live_sync import LiveSync
 from talkman_onboarding import QuickGuide, should_offer_guide
 from talkman_mac_guide import MacSetupGuide, mac_guide_enabled, should_offer_mac_guide
@@ -789,11 +790,14 @@ class TalkManApp(TranslationUIMixin, DeliveryUIMixin, ConventionsUIMixin, AIEdit
         delivery_row = ttk.Frame(bottom)
         delivery_row.pack(in_=switches, side='right')
         self.target_picker = TargetPicker(self)
+        self.input_picker = InputPicker(self)
         self.target_button = self.button(delivery_row, "填入 Agent", self.fill_to_target,
                                          icon="clipboard-paste", style="Ghost.TButton")
         self.target_button.pack(side="right")
         self.target_selector = self.target_picker.button(delivery_row)
         self.target_selector.pack(side="right", padx=(0, 8))
+        self.input_position_button = self.button(delivery_row, '选择输入位置', self.input_picker.begin, style='Ghost.TButton')
+        self.input_position_button.pack(side='right', padx=(0, 4))
         footer_feedback = ttk.Frame(bottom)
         footer_feedback.pack(fill='x', pady=(6, 0))
         self.cancel_button = self.button(footer_feedback,"取消本次 · Esc",self.cancel_operation,style="Ghost.TButton")
@@ -826,6 +830,7 @@ class TalkManApp(TranslationUIMixin, DeliveryUIMixin, ConventionsUIMixin, AIEdit
         self.compact_fill.pack(side='right')
         self.compact_target_selector = self.target_picker.button(delivery, compact=True)
         self.compact_target_selector.pack(side='right', padx=(0, 8))
+        self.button(delivery, '位置', self.input_picker.begin, style='Ghost.TButton').pack(side='right')
         self.compact_status = ttk.Label(self.compact_bottom, textvariable=self.status_var,
                                         style='Muted.TLabel', wraplength=440)
         self.compact_status.pack(fill='x', pady=(6, 0))
@@ -1657,6 +1662,10 @@ class TalkManApp(TranslationUIMixin, DeliveryUIMixin, ConventionsUIMixin, AIEdit
     def start_voice(self,mode, *, from_device=False):
         if self.busy or self.closing or self.ai_review is not None or self.convention_panel is not None:
             return False
+        navigating = self.input_picker.active
+        if navigating and mode != 'rewrite':
+            self.status_var.set('位置选择中请使用「指令修改」说导航指令，或先确认／取消位置。')
+            return False
         if getattr(self, '_mic_reset_pending', False) or getattr(self, '_mic_permission_reset_required', False):
             self.status_var.set("麦克风授权正在重置或已重置，请完全退出程序后重新打开，再点击录音授权。")
             return False
@@ -1673,9 +1682,9 @@ class TalkManApp(TranslationUIMixin, DeliveryUIMixin, ConventionsUIMixin, AIEdit
                 raise QwenError('这台电脑尚未开通免费内测，请在设置中检查连接。')
             if provider != 'free':
                 validate(self.asr_settings)
-            if provider != 'free' and (provider == "qwen" or mode == "rewrite") and not self.settings.api_key:
+            if provider != 'free' and (provider == "qwen" or (mode == "rewrite" and not navigating)) and not self.settings.api_key:
                 raise QwenError("请在「设置 → 模型连接」填写千问 API Key；指令修改需要文字模型。")
-            if provider != 'free' and (provider == "qwen" or mode == "rewrite") and self.settings.api_key.startswith("sk-sp-"):
+            if provider != 'free' and (provider == "qwen" or (mode == "rewrite" and not navigating)) and self.settings.api_key.startswith("sk-sp-"):
                 raise QwenError("请填写千问通用 API Key，当前不支持套餐专属 Key。")
             recognize = (FreeClient(self.free_service).transcribe if provider == 'free'
                          else None if provider == "qwen" else transcriber(self.asr_settings))
@@ -1686,7 +1695,7 @@ class TalkManApp(TranslationUIMixin, DeliveryUIMixin, ConventionsUIMixin, AIEdit
         if mode == "replace" and not sel:
             self.status_var.set("请先框选需要修改的文字")
             return False
-        if mode == "rewrite" and not sel and not from_device and self.focus_displayof() != self.text:
+        if mode == "rewrite" and not navigating and not sel and not from_device and self.focus_displayof() != self.text:
             self.status_var.set("请先在预输入框中点击要修改的位置，或框选需要修改的文字")
             return False
         self._mic_permission_request += 1
@@ -1705,6 +1714,8 @@ class TalkManApp(TranslationUIMixin, DeliveryUIMixin, ConventionsUIMixin, AIEdit
             self.status_var.set("请在系统提示中允许麦克风，随后重新按住录音。")
             return False
         self._mic_permission_pending = False
+        self.voice_input_navigation = navigating
+        self.voice_input_generation = self.input_picker.generation
         self.disarm_delivery()
         self.flush_manual_learning()
         self.capture_edit()
@@ -1790,6 +1801,19 @@ class TalkManApp(TranslationUIMixin, DeliveryUIMixin, ConventionsUIMixin, AIEdit
         if not value.strip():
             self.restore_voice("没有识别到有效语音，原文已保留")
         elif self.voice_mode == "rewrite":
+            from talkman_input_locations import navigation_instruction
+            navigation = navigation_instruction(value)
+            if navigation is not None:
+                self.restore_voice('正在处理输入位置指令…')
+                if (getattr(self, 'voice_input_navigation', False)
+                        and self.voice_input_generation != self.input_picker.generation):
+                    self.status_var.set('位置选择已取消或重新开始，本次语音导航未执行。')
+                    return
+                self.input_picker.navigate(navigation)
+                return
+            if getattr(self, 'voice_input_navigation', False):
+                self.restore_voice('位置选择中，请说“下一个输入框”“选择第二个输入框”或“确认这个位置”。')
+                return
             token=self.operation_id
             selected=self.voice_base[self.voice_start:self.voice_end]
             if is_remember_instruction(value):
@@ -1856,6 +1880,9 @@ class TalkManApp(TranslationUIMixin, DeliveryUIMixin, ConventionsUIMixin, AIEdit
         self.status_var.set(message)
 
     def cancel_operation(self):
+        if self.input_picker.active and not self.busy:
+            self.input_picker.cancel()
+            return 'break'
         if self.pending_delivery:
             self.disarm_delivery()
             self.status_var.set('已取消下发确认，目标中已填入的文字保留。')
@@ -2252,13 +2279,13 @@ class TalkManApp(TranslationUIMixin, DeliveryUIMixin, ConventionsUIMixin, AIEdit
         target = self.target_windows.get(window_id)
         if target is None:
             raise TargetError("目标窗口已失效，请重新刷新后选择。")
-        self.target_controller.select(target)
-        self.live_sync.configure(self.sync_mode_var.get())
-        self.target_label_var.set(target.display_name())
-        self.status_var.set(f"已选择目标：{target.display_name()}；" + ('正在准备同步，点击下发才发送' if self.sync_mode_var.get() else '填入时不会自动发送'))
-        return "目标已保存，可回到编辑器填入文字。"
+        if getattr(self, 'settings_window', None) and self.settings_window.winfo_exists():
+            self._close_settings(self.settings_window)
+        self.input_picker.begin(target)
+        return '请回主窗口确认输入位置；确认前保留原目标。'
 
     def clear_target(self):
+        self.input_picker.cancel(quiet=True)
         if self.target_controller:
             self.target_controller.clear()
         self.target_windows = {}
@@ -2267,6 +2294,9 @@ class TalkManApp(TranslationUIMixin, DeliveryUIMixin, ConventionsUIMixin, AIEdit
         self.status_var.set("已清除目标输入框")
 
     def fill_to_target(self, *, paste_only=False, device_confirm=False):
+        if (self.input_picker.active or self.coloplay.target_due or self.coloplay.target_scanning):
+            self.status_var.set('请先确认或取消目标与输入位置选择，本次未填入。')
+            return
         if self.convention_panel is not None:
             self.status_var.set('请先保存或取消约定词。')
             return
@@ -2374,6 +2404,7 @@ class TalkManApp(TranslationUIMixin, DeliveryUIMixin, ConventionsUIMixin, AIEdit
             return
         self.flush_manual_learning()
         self.closing=True
+        self.input_picker.close()
         if hasattr(self, 'coloplay'):
             self.coloplay.close()
         self.system_style.close()

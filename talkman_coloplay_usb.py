@@ -64,6 +64,10 @@ def select_pair(devices,ports):
 
 def display_matches(displayed,current,mask):
     if displayed==current:return True
+    # 位置选择中只允许连续转动使用上一帧；确认必须对应当前编号。
+    if (mask in (0,32,64,96) and len(displayed or ())>=14 and len(current or ())>=14
+            and current[4]=='input_select' and displayed[:13]==current[:13]
+            and displayed[13][:2]+displayed[13][3:]==current[13][:2]+current[13][3:]):return True
     # 填入导致目标激活／编辑失焦，不应吞掉发送确认或明确的新一轮录入。
     # 仅放宽焦点与光标；令牌、正文、目标、会话和阶段仍须完全一致。
     if (mask in (0,1,2,4,8,12) and len(displayed or ())>=13 and len(current or ())>=13

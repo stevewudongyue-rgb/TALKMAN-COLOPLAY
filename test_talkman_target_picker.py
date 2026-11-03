@@ -8,6 +8,7 @@ from unittest.mock import Mock, patch
 
 from talkman_app import TalkManApp
 from talkman_target import TargetError, TargetSelection, TargetWindow
+from talkman_input_locations import InputRegion
 
 
 class FakeTargets:
@@ -38,6 +39,19 @@ class FakeTargets:
     def stop_sync(self):
         pass
 
+    def begin_inputs(self, target, callback):
+        self.draft = target
+        callback('ok', dict(ticket='test', regions=[InputRegion(1, (50,60,200,80))]))
+
+    def inspect_input(self, ticket, index, callback, *, confirm=False):
+        if confirm:
+            self.select(self.draft)
+            self.label = self.draft.app + ' · 位置 1'
+        callback('ok', dict(region=InputRegion(1, (50,60,200,80))))
+
+    def cancel_inputs(self):
+        self.draft = None
+
 
 class TargetPickerTests(unittest.TestCase):
     def setUp(self):
@@ -52,6 +66,8 @@ class TargetPickerTests(unittest.TestCase):
         self.app.poll_job = None
         self.app.update()
         self.picker = self.app.target_picker
+        self.outline = patch.object(self.app.input_picker.outline, 'show', return_value=True)
+        self.outline.start(); self.addCleanup(self.outline.stop)
         self.windows = [TargetWindow(11, 42, 'ChatGPT', '项目讨论', 'chatgpt'),
                         TargetWindow(12, 43, '豆包', '新对话', 'doubao')]
         self.app.set_text('请把苹果拿过来。')
@@ -82,12 +98,20 @@ class TargetPickerTests(unittest.TestCase):
         callback(state, self.windows if value is None else value)
         self.pump()
 
+    def confirm_position(self):
+        self.app.input_picker.confirm()
+        if self.app.input_picker.job:
+            self.app.after_cancel(self.app.input_picker.job); self.app.input_picker.job = None
+        self.app.input_picker.tick()
+
     def test_switch_preserves_document_selection_caret_and_never_fills(self):
         a = self.app
         before = (a.current_text(), a.get_selection(), a.text.index('insert'), a.timeline.items[:])
         self.open()
         self.reply()
         self.picker.choose('1')
+        self.assertIsNone(self.service.selected)
+        self.confirm_position()
         self.assertEqual(self.service.selected.id, 12)
         self.assertEqual(TargetSelection.load(Path(self.temp.name)).metadata['app'], '豆包')
         self.assertIsNone(self.picker.panel)
@@ -111,6 +135,7 @@ class TargetPickerTests(unittest.TestCase):
     def test_empty_error_and_retry_are_inline_and_do_not_erase_target(self):
         self.app.target_windows = {11: self.windows[0]}
         self.app.choose_target(11)
+        self.confirm_position()
         self.open()
         self.reply(state='error', value='请开启辅助功能')
         self.assertEqual(self.picker.feedback.get(), '请开启辅助功能')
@@ -138,6 +163,7 @@ class TargetPickerTests(unittest.TestCase):
     def test_keyboard_selection_and_existing_target_highlight(self):
         self.app.target_windows = {12: self.windows[1]}
         self.app.choose_target(12)
+        self.confirm_position()
         self.open()
         self.reply()
         self.assertEqual(self.picker.listing.selection(), ('1',))
@@ -146,6 +172,7 @@ class TargetPickerTests(unittest.TestCase):
         self.app.update()
         self.picker.listing.event_generate('<Return>')
         self.app.update()
+        self.confirm_position()
         self.assertEqual(self.service.selected.id, 11)
         self.service.fill_with_receipt.assert_not_called()
 
@@ -176,6 +203,7 @@ class TargetPickerTests(unittest.TestCase):
     def test_settings_selection_and_clear_sync_both_labels(self):
         self.app.target_windows = {11: self.windows[0]}
         self.app.choose_target(11)
+        self.confirm_position()
         self.assertIn('ChatGPT', self.app.target_selector.cget('text'))
         self.assertIn('ChatGPT', self.app.compact_target_selector.cget('text'))
         self.app.clear_target()

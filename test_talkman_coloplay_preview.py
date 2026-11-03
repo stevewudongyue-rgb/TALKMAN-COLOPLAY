@@ -129,24 +129,24 @@ class SimulatorTests(DesktopTests):
             self.assertNotIn('私密标题',json.dumps(state,ensure_ascii=False))
         with patch('talkman_coloplay.time.monotonic',return_value=10.7):
             self.device.active=True;self.device.commit_target()
-            self.assertTrue(self.device.cycling)
-            controller.selected=windows[1]
-            callback=controller.cycle.call_args.args[1];callback('ok',windows[1]);self.device.tick()
-            self.app.after_cancel(self.device.job);self.device.job=None
+            self.assertTrue(self.app.input_picker.active)
+            callback=controller.begin_inputs.call_args.args[1];callback('error','无法识别位置')
+            self.app.after_cancel(self.app.input_picker.job);self.app.input_picker.tick()
             state=self.device.snapshot()
-            self.assertTrue(state['target_view']);self.assertFalse(state['cycling'])
-            self.assertEqual(state['target'],'豆包');self.assertEqual(state['target_previous'],'Codex')
-            self.assertEqual((state['target_index'],state['target_count']),(2,2))
+            self.assertTrue(state['input_selecting']);self.assertTrue(state['input_error'])
+            self.assertEqual(state['input_target'],'豆包');self.assertEqual(state['target'],'Codex')
+            self.assertNotIn('私密标题',json.dumps(state,ensure_ascii=False))
+            self.app.input_picker.cancel()
         with patch('talkman_coloplay.time.monotonic',return_value=13):
             self.assertFalse(self.device.snapshot()['target_view'])
             self.device.execute('target_next')
         with patch('talkman_coloplay.time.monotonic',return_value=13.7):
             self.device.commit_target()
-            callback=controller.cycle.call_args.args[1];callback('error','无法激活');self.device.tick()
-            self.app.after_cancel(self.device.job);self.device.job=None
-            self.assertTrue(self.device.snapshot()['target_error'])
-            self.assertEqual(self.device.snapshot()['target'],'豆包')
-            self.device.execute('toggle')
+            callback=controller.begin_inputs.call_args.args[1];callback('error','无法激活')
+            self.app.after_cancel(self.app.input_picker.job);self.app.input_picker.tick()
+            self.assertTrue(self.device.snapshot()['input_error'])
+            self.assertEqual(self.device.snapshot()['target'],'Codex')
+            self.device.execute('input_cancel')
             self.assertFalse(self.device.snapshot()['target_view'])
 
     def test_target_pages_and_preview_use_agent_only_order(self):
@@ -193,19 +193,20 @@ class SimulatorTests(DesktopTests):
         with patch('talkman_coloplay.time.monotonic',return_value=21):d.snapshot()
         c.cycle.assert_not_called()
         with patch('talkman_coloplay.time.monotonic',return_value=21.06):d.commit_target()
-        c.cycle.assert_called_once()
-        self.assertEqual(c.cycle.call_args.kwargs['expected_target'],c.windows[5].session_key())
-        cancelled=c.cycle.call_args.kwargs['cancelled']
+        c.begin_inputs.assert_called_once()
+        self.assertEqual(c.begin_inputs.call_args.args[0],c.windows[5])
+        callback=c.begin_inputs.call_args.args[1]
         with patch('talkman_coloplay.time.monotonic',return_value=21.1):d.execute('target_previous')
-        self.assertTrue(cancelled.is_set())
+        self.assertFalse(self.app.input_picker.active)
+        c.cancel_inputs.assert_called_once()
         self.assertEqual(d.snapshot()['target_index'],5)
-        callback=c.cycle.call_args.args[1];callback('error','已取消')
+        callback('error','已取消')
         with patch('talkman_coloplay.time.monotonic',return_value=21.2):d.tick()
         self.app.after_cancel(d.job);d.job=None
         self.assertFalse(d.target_view_error)
         d.cancel_navigation()
         with patch('talkman_coloplay.time.monotonic',return_value=23):d.commit_target()
-        self.assertEqual(c.cycle.call_count,1)
+        self.assertEqual(c.begin_inputs.call_count,1)
 
     def test_pause_or_disconnect_cancels_pending_target_switch(self):
         self.target();d=self.device;c=self.app.target_controller
@@ -231,7 +232,7 @@ class SimulatorTests(DesktopTests):
             self.assertEqual(d.snapshot()['target_index'],2)
             c.cycle.assert_not_called()
         with patch('talkman_coloplay.time.monotonic',return_value=41.7):d.commit_target()
-        self.assertEqual(c.cycle.call_args.kwargs['expected_target'],c.windows[1].session_key())
+        self.assertEqual(c.begin_inputs.call_args.args[0],c.windows[1])
 
     def test_simulator_opens_from_settings_without_remaining_paused(self):
         self.app.open_settings()
@@ -483,7 +484,7 @@ class ScreenTests(unittest.TestCase):
         r=DeviceRuntime();r.step(0,0)
         base=dict(ready=True,phase='idle',target_view=True,target_index=2,target_count=4,
                   target_page_names=['Codex','豆包','千问','Cursor'],target_page_start=1)
-        for state,expected in [(dict(target_waiting=True,target_progress=.5),'松开右下选定'),
+        for state,expected in [(dict(target_waiting=True,target_progress=.5),'松开后选位置'),
                                (dict(cycling=True,target_choice='豆包'),'正在切换'),({},'旋转选目标')]:
             r.render(dict(base,**state),1000)
             self.assertIn(expected,[row['text'] for row in r.text_layout])

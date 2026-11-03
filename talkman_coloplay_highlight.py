@@ -62,6 +62,9 @@ class WindowsOutline:
             _fields_=[('style',W.UINT),('proc',self.callback_type),('extra',C.c_int),('window_extra',C.c_int),
                       ('instance',W.HINSTANCE),('icon',W.HICON),('cursor',W.HANDLE),('brush',W.HBRUSH),
                       ('menu',W.LPCWSTR),('name',W.LPCWSTR)]
+        class PaintStruct(C.Structure):
+            _fields_=[('dc',W.HDC),('erase',W.BOOL),('rect',W.RECT),('restore',W.BOOL),
+                      ('update',W.BOOL),('reserved',W.BYTE*32)]
         def signature(dll,name,args,result):
             f=getattr(dll,name);f.argtypes=args;f.restype=result;return f
         signature(self.u,'DefWindowProcW',[W.HWND,W.UINT,W.WPARAM,W.LPARAM],C.c_ssize_t)
@@ -74,6 +77,15 @@ class WindowsOutline:
         signature(self.u,'ShowWindow',[W.HWND,C.c_int],W.BOOL)
         signature(self.u,'DestroyWindow',[W.HWND],W.BOOL)
         signature(self.u,'GetWindowRect',[W.HWND,C.POINTER(W.RECT)],W.BOOL)
+        signature(self.u,'GetDC',[W.HWND],W.HDC)
+        signature(self.u,'ReleaseDC',[W.HWND,W.HDC],C.c_int)
+        signature(self.u,'DrawTextW',[W.HDC,W.LPCWSTR,C.c_int,C.POINTER(W.RECT),W.UINT],C.c_int)
+        signature(self.u,'BeginPaint',[W.HWND,C.POINTER(PaintStruct)],W.HDC)
+        signature(self.u,'EndPaint',[W.HWND,C.POINTER(PaintStruct)],W.BOOL)
+        signature(self.u,'InvalidateRect',[W.HWND,C.POINTER(W.RECT),W.BOOL],W.BOOL)
+        signature(self.u,'UpdateWindow',[W.HWND],W.BOOL)
+        signature(self.g,'SetTextColor',[W.HDC,W.DWORD],W.DWORD)
+        signature(self.g,'SetBkColor',[W.HDC,W.DWORD],W.DWORD)
         signature(self.u,'GetWindowThreadProcessId',[W.HWND,C.POINTER(W.DWORD)],W.DWORD)
         signature(self.u,'GetForegroundWindow',[],W.HWND)
         signature(self.u,'IsWindowVisible',[W.HWND],W.BOOL)
@@ -90,11 +102,20 @@ class WindowsOutline:
         def proc(hwnd,message,wparam,lparam):
             if message==0x84: return -1  # HTTRANSPARENT
             if message==0x21: return 3   # MA_NOACTIVATE
+            if message==0x0F and hwnd==getattr(self,'badge',None):
+                paint=PaintStruct();dc=self.u.BeginPaint(hwnd,C.byref(paint))
+                if dc:
+                    self.g.SetTextColor(dc,0);self.g.SetBkColor(dc,0x8BFF5C)
+                    area=W.RECT(0,0,32,26)
+                    self.u.DrawTextW(dc,str(self.region_number),-1,C.byref(area),0x25)
+                    self.u.EndPaint(hwnd,C.byref(paint))
+                return 0
             return self.u.DefWindowProcW(hwnd,message,wparam,lparam)
         self.proc=proc
         cls=WindowClass(0,proc,0,0,self.instance,None,None,self.brush,None,self.name)
         self.atom=self.u.RegisterClassW(C.byref(cls))
         self.windows=[]
+        self.badge = None
         if not self.atom:
             self.g.DeleteObject(self.brush)
             raise C.WinError(C.get_last_error())
@@ -116,7 +137,7 @@ class WindowsOutline:
         finally:
             if old:self.u.SetThreadDpiAwarenessContext(old)
 
-    def draw(self,target):
+    def draw(self,target, region=None):
         if target is None or not isinstance(target.hwnd,int) or not target.pid:return False
         hwnd=target.hwnd
         pid=W.DWORD()
@@ -130,6 +151,8 @@ class WindowsOutline:
             if self.d.DwmGetWindowAttribute(hwnd,9,C.byref(rect),C.sizeof(rect))!=0:
                 if not self.u.GetWindowRect(hwnd,C.byref(rect)):return False
             x,y,w,h=rect.left,rect.top,rect.right-rect.left,rect.bottom-rect.top
+            if region is not None:
+                x,y,w,h=map(round, region)
             if w<12 or h<12:return False
             edges=[(x,y,w,3),(x,y+h-3,w,3),(x,y,3,h),(x+w-3,y,3,h)]
             for edge,(a,b,width,height) in zip(self.windows,edges):
@@ -139,8 +162,28 @@ class WindowsOutline:
 
     def hide(self):
         for hwnd in self.windows:self.u.ShowWindow(hwnd,0)
+        if self.badge:self.u.ShowWindow(self.badge,0)
+
+    def draw_region(self, target, rect, number):
+        if not self.draw(target, rect):
+            return False
+        x,y,w,h = map(round, rect)
+        self.region_number = number
+        with self.dpi():
+            edges = [(x,y,w,3),(x,y+h-3,w,3),(x,y,3,h),(x+w-3,y,3,h)]
+            for edge, (a,b,width,height) in zip(self.windows, edges):
+                if not self.u.SetWindowPos(edge,W.HWND(-1),a,b,width,height,0x0050):return False
+            if self.badge is None:
+                self.badge=self.u.CreateWindowExW(0x080800A0,self.name,'',0x80000000,0,0,32,26,None,None,self.instance,None)
+                if not self.badge:return False
+                self.u.SetLayeredWindowAttributes(self.badge,0,255,2)
+            self.u.SetWindowPos(self.badge,W.HWND(-1),x,y,32,26,0x0050)
+            self.u.InvalidateRect(self.badge,None,True)
+            self.u.UpdateWindow(self.badge)
+        return True
 
     def close(self):
+        if self.badge:self.u.DestroyWindow(self.badge);self.badge=None
         for hwnd in self.windows:self.u.DestroyWindow(hwnd)
         self.windows=[]
         if self.atom:self.u.UnregisterClassW(self.name,self.instance);self.atom=0

@@ -99,7 +99,7 @@ local function target_picker(m)
   local page=tostring(m.target_page or 1)..'/'..tostring(m.target_pages or 1)..' 页'
   text(tostring(m.target_index)..'/'..tostring(m.target_count)..'   '..page,120,193,150,C.muted,12)
  end
- text(m.target_waiting and '松开右下选定' or m.cycling and '正在切换' or m.target_error and '请重新旋转' or '旋转选目标',120,212,112,C.muted,14)
+ text(m.target_waiting and '松开后选位置' or m.cycling and '正在切换' or m.target_error and '请重新旋转' or '旋转选目标',120,212,112,C.muted,14)
 end
 local function icon(kind,x,y,c)
  if kind=='mic' then
@@ -154,6 +154,25 @@ function TMDraw(m)
   line(120+math.cos(a)*r,120+math.sin(a)*r,120+math.cos(a)*112,120+math.sin(a)*112,C.edge)
  end
  wordmark()
+ if m.input_selecting and live and not m.inactive then
+  text('选择输入位置',120,49,168,C.muted)
+  text(m.input_target or '',120,72,174,C.text)
+  if phase=='recording' or phase=='opening' then
+   text('说位置指令',120,106,174,C.ink,22,true)
+   text('左下结束录音',120,147,174,C.muted)
+  elseif m.input_error then
+   text('位置已失效',120,103,174,C.warn,22,true)
+   text('请在电脑重新查找',120,140,174,C.muted)
+  elseif m.input_loading then
+   text('正在核对',120,107,174,C.text,22,true)
+  else
+   text(tostring(m.input_index or 1)..' / '..tostring(m.input_count or 0),120,104,170,C.ink,28,true)
+   text('旋转切换',120,144,160,C.muted)
+   text('点按旋钮确认',120,169,160,C.text)
+  end
+  text('右上取消',120,202,120,C.muted)
+  return
+ end
  if m.target_view and live and phase~='review' and not m.pending and not m.fill_cancelled and not m.ul and not m.inactive then
   target_picker(m);return
  end
