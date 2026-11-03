@@ -76,7 +76,7 @@ class UpdateTests(unittest.TestCase):
                 with self.assertRaises(updates.UpdateError):
                     updates.installed_app_path()
                 (Path(folder) / 'unins000.exe').touch()
-                self.assertEqual(updates.installed_app_path(), executable)
+                self.assertEqual(updates.installed_app_path(), executable.resolve())
 
     def test_one_click_starts_installer_only_after_close(self):
         class Widget:
