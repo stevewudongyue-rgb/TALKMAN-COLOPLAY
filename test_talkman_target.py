@@ -648,6 +648,28 @@ class TargetTests(unittest.TestCase):
             self.assertEqual(controller.last_fill_report, "上次填入：Agent · 聚焦并填入 · 未完成")
             controller.close()
 
+    def test_fill_tree_diagnostic_contains_only_counts_and_known_states(self):
+        backend = FakeBackend()
+        backend.last_fill_stage = "未暴露可编辑输入框"
+        backend.last_fill_tree = dict(nodes=3, text_controls=1, editable=0,
+                                     child_errors="私密正文", label="私密标题")
+        backend.last_fill_accessibility = "已尝试并启用"
+        backend.fill = Mock(side_effect=TargetError("未找到输入框"))
+        with tempfile.TemporaryDirectory() as directory:
+            controller = TargetController(Path(directory), backend=backend)
+            controller.select(backend.windows[0])
+            results = []
+            controller.fill("私密正文", lambda state, value: results.append((state, value)))
+            self.assertEqual(wait_result(results)[0], "error")
+            report = controller.last_fill_report
+            self.assertIn("扫描节点：3", report)
+            self.assertIn("文字控件：1", report)
+            self.assertIn("可编辑：0", report)
+            self.assertIn("辅助树：已尝试并启用", report)
+            self.assertNotIn("私密", report)
+            self.assertNotIn("子树读取失败", report)
+            controller.close()
+
     def test_copied_target_diagnostic_includes_last_fill_without_body(self):
         from talkman_settings_ui import SettingsPanelMixin
 

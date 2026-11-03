@@ -969,6 +969,145 @@ class MacTargetTests(unittest.TestCase):
         self.assertEqual(self.api.actions, [])
 
 
+class MacInputTreeRecoveryTests(unittest.TestCase):
+    def setUp(self):
+        self.api = FakeAPI()
+        self.app, self.root = self.api.add_app(name="ZCode", bundle="dev.zcode.app")
+        self.window = self.api.add_window(self.root)
+        self.root.writable.add("AXManualAccessibility")
+        self.backend = target.MacTargetBackend(api=self.api)
+        self.selected = self.backend.list_windows()[0]
+        self.api.focus(self.selected.pid, self.window, self.window)
+        self.wait = patch.object(target.time, "sleep").start()
+        self.addCleanup(patch.stopall)
+
+    def assert_no_paste(self):
+        self.assertFalse(any(action[0] in ("clipboard", "paste", "move_caret", "selection")
+                             for action in self.api.actions))
+
+    def test_visible_window_hidden_web_tree_is_enabled_then_filled(self):
+        original_set = self.api.set
+
+        def enable(element, attribute, value):
+            original_set(element, attribute, value)
+            if attribute == "AXManualAccessibility":
+                self.api.add_input(self.window, label="chat message")
+
+        self.api.set = enable
+        self.backend.fill(self.selected, "离线测试")
+        self.assertEqual(self.api.actions[-1], ("paste",))
+        self.assertEqual(self.backend.last_fill_accessibility, "已尝试并启用")
+        self.assertEqual(self.backend.last_fill_tree["editable"], 1)
+        self.assertEqual(sum(a[0] == "set" and a[2] == "AXManualAccessibility"
+                             for a in self.api.actions), 1)
+
+    def test_delayed_unlabelled_focus_preserves_existing_caret(self):
+        self.editor = None
+
+        def load(_seconds):
+            if self.wait.call_count == 3:
+                self.editor = self.api.add_input(self.window, label="", count=12)
+                self.editor.span = (4, 0)
+                self.api.focus(self.selected.pid, self.window, self.editor)
+
+        self.wait.side_effect = load
+        self.backend.fill(self.selected, "测试")
+        self.assertEqual(self.wait.call_count, 3)
+        self.assertEqual(self.editor.span, (4, 0))
+        self.assertEqual(self.api.actions[-1], ("paste",))
+
+    def test_loading_from_background_appends_to_end(self):
+        self.api.front = 123
+        editors = []
+
+        def load(_seconds):
+            editor = self.api.add_input(self.window, label="", count=12)
+            editor.span = (4, 0)
+            editors.append(editor)
+            self.api.focus(self.selected.pid, self.window, editor)
+
+        self.wait.side_effect = load
+        self.backend.fill(self.selected, "测试")
+        self.assertEqual(editors[0].span, (12, 0))
+        self.assertEqual(self.api.actions[-1], ("paste",))
+
+    def test_already_enabled_tree_waits_without_rewriting_attribute(self):
+        self.root.attributes["AXManualAccessibility"] = True
+        self.wait.side_effect = lambda _: self.api.add_input(self.window, label="message")
+        self.backend.fill(self.selected, "测试")
+        self.assertEqual(self.backend.last_fill_accessibility, "已启用，未重复设置")
+        self.assertFalse(any(a[0] == "set" and a[2] == "AXManualAccessibility" for a in self.api.actions))
+
+    def test_empty_tree_times_out_and_reports_counts_without_clipboard(self):
+        with self.assertRaisesRegex(target.TargetError, "唯一"):
+            self.backend.fill(self.selected, "私密正文")
+        self.assertEqual(self.wait.call_count, 8)
+        self.assertEqual(self.backend.last_fill_tree,
+                         dict(nodes=1, text_controls=0, editable=0, child_errors=0))
+        self.assert_no_paste()
+
+    def test_unsupported_tree_and_read_only_text_do_not_authorize_paste(self):
+        self.root.writable.clear()
+        self.api.add_input(self.window, writable=False)
+        with self.assertRaisesRegex(target.TargetError, "唯一"):
+            self.backend.fill(self.selected, "不能误填")
+        self.assertEqual(self.backend.last_fill_accessibility, "不支持，未尝试")
+        self.assertEqual(self.backend.last_fill_tree["text_controls"], 1)
+        self.assertEqual(self.backend.last_fill_tree["editable"], 0)
+        self.assert_no_paste()
+
+    def test_window_switch_during_loading_aborts_without_reactivation(self):
+        self.wait.side_effect = lambda _: setattr(self.api, "front", 123)
+        with self.assertRaisesRegex(target.TargetError, "已失去焦点"):
+            self.backend.fill(self.selected, "不能误填")
+        self.assert_no_paste()
+        self.assertFalse(any(a[0] == "activate" for a in self.api.actions))
+
+    def test_process_restart_during_loading_aborts(self):
+        self.wait.side_effect = lambda _: self.app.update(started=101.0)
+        with self.assertRaisesRegex(target.TargetError, "会话已变化"):
+            self.backend.fill(self.selected, "不能误填")
+        self.assert_no_paste()
+
+    def test_exposed_unfocused_code_editor_is_still_not_a_chat_composer(self):
+        self.wait.side_effect = lambda _: self.api.add_input(self.window, label="")
+        with self.assertRaisesRegex(target.TargetError, "唯一"):
+            self.backend.fill(self.selected, "不能误填")
+        self.assertEqual(self.backend.last_fill_stage, "输入框缺少聊天标识")
+        self.assertEqual(self.wait.call_count, 1)
+        self.assert_no_paste()
+
+    def test_exposed_multiple_chat_inputs_are_not_guessed(self):
+        def load(_seconds):
+            self.api.add_input(self.window, label="message")
+            self.api.add_input(self.window, label="message")
+        self.wait.side_effect = load
+        with self.assertRaisesRegex(target.TargetError, "唯一"):
+            self.backend.fill(self.selected, "不能误填")
+        self.assertEqual(self.backend.last_fill_stage, "多个聊天输入框同级")
+        self.assert_no_paste()
+
+    def test_invalid_saved_focus_cannot_authorize_different_unlabelled_input(self):
+        stale = self.api.add_input(self.window, label="", writable=False)
+        token = target.FocusToken(self.selected.hwnd, self.selected.pid, 99.0, stale)
+        def load(_seconds):
+            editor = self.api.add_input(self.window, label="")
+            self.api.focus(self.selected.pid, self.window, editor)
+        self.wait.side_effect = load
+        with self.assertRaisesRegex(target.TargetError, "唯一"):
+            self.backend.fill(self.selected, "不能误填", token)
+        self.assert_no_paste()
+
+    def test_child_read_failure_is_distinct_from_empty_tree(self):
+        self.api.read_with_status = lambda element, attr: (
+            (-25204, None) if element is self.window and attr == "AXChildren"
+            else (0, self.api.get(element, attr)))
+        with self.assertRaisesRegex(target.TargetError, "唯一"):
+            self.backend.fill(self.selected, "不能误填")
+        self.assertEqual(self.backend.last_fill_tree["child_errors"], 1)
+        self.assert_no_paste()
+
+
 class MacScanTests(unittest.TestCase):
     def setUp(self):
         self.api = FakeAPI()

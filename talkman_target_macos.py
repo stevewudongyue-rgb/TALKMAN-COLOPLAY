@@ -291,6 +291,8 @@ class MacTargetBackend:
         self.last_scan_note = "尚未刷新目标窗口。"
         self.last_fill_stage = "尚未尝试"
         self.last_fill_focus_role = "未知"
+        self.last_fill_tree = {}
+        self.last_fill_accessibility = "未尝试"
 
     def _ensure_api(self) -> Any:
         if self._api is None:
@@ -589,6 +591,8 @@ class MacTargetBackend:
         candidates: list[Any] = []
         unlabelled: list[Any] = []
         editable_count = 0
+        text_controls = 0
+        child_errors = 0
         unlabelled_count = 0
         fallback_allowed = (
             record.target.app.strip().casefold() in _UNLABELLED_AGENT_NAMES
@@ -601,6 +605,8 @@ class MacTargetBackend:
             if any(api.equal(element, other) for other in seen):
                 continue
             seen.append(element)
+            if api.get(element, "AXRole") in ("AXTextArea", "AXTextField"):
+                text_controls += 1
             if len(seen) > 3000:
                 raise TargetError("目标界面内容较多，请先点击 Agent 的主输入框再试。")
             if self._is_editable(element) and self._belongs(element, record):
@@ -613,7 +619,12 @@ class MacTargetBackend:
                     unlabelled_count += 1
                     if fallback_allowed:
                         unlabelled.append(element)
-            pending.extend(api.get(element, "AXChildren", []) or [])
+            status, children = self._read_attribute(api, element, "AXChildren")
+            if status not in (0, -25205, -25212):  # unsupported/no-value are normal for leaves
+                child_errors += 1
+            pending.extend(children or [])
+        self.last_fill_tree = dict(nodes=len(seen), text_controls=text_controls,
+                                   editable=editable_count, child_errors=child_errors)
         ranked = sorted((
             (sum(weight for word, weight in _MAIN_INPUT if word in self._input_label(element)), element)
             for element in candidates
@@ -637,6 +648,27 @@ class MacTargetBackend:
             self.last_fill_stage = "输入框字符数不可读"
             return None
         return unlabelled[0]
+
+    def _recover_input_tree(self, target: TargetWindow, record: _WindowRecord,
+                            *, allow_focused: bool) -> tuple[Any, Any, bool]:
+        # A visible Electron window can exist before its web input accessibility tree.
+        # Only repair the selected window on an explicit fill; don't enable every app on scan.
+        self.last_fill_accessibility = self._enable_manual_accessibility(self._api, record.root)
+        for _ in range(8):
+            time.sleep(0.1)
+            self.last_fill_stage = "等待输入框加载"
+            record = self._validate(target)
+            if record is None:
+                raise TargetError("目标窗口已关闭或会话已变化，请刷新并重新选择。")
+            if not self._same_window(record):
+                raise TargetError("目标窗口已失去焦点，已取消填入。")
+            current = self._focused_input(record)
+            if current is not None and allow_focused:
+                return record, current, True
+            current = self._main_input(record)
+            if current is not None or self.last_fill_stage != "未暴露可编辑输入框":
+                return record, current, False
+        return record, None, False
 
     @_with_native_pool
     def capture_focus(self, target: TargetWindow) -> FocusToken | bool | None:
@@ -805,15 +837,18 @@ class MacTargetBackend:
     def fill(self, target: TargetWindow, text: str, remembered_focus: FocusToken | None = None) -> str:
         self.last_fill_stage = "检查目标窗口"
         self.last_fill_focus_role = "未知"
+        self.last_fill_tree = {}
+        self.last_fill_accessibility = "未尝试"
         if not isinstance(text, str) or not text:
             raise TargetError("没有可填入的文字。")
         record = self._validate(target)
         if record is None:
             raise TargetError("目标窗口已关闭或会话已变化，请刷新并重新选择。")
         api = self._api
+        originally_frontmost = self._same_window(record)
         current = self._focused_input(record)
         originally_focused = current is not None
-        if current is None:
+        if current is None and not originally_frontmost:
             self.last_fill_stage = "激活目标窗口"
             api.activate(record.app, record.element)
             record = self._wait_focus(target)
@@ -832,10 +867,16 @@ class MacTargetBackend:
             # 用户实际聚焦过的控件可以恢复，即使网页没有给它聊天输入标签。
             self.last_fill_stage = "查找主输入框"
             current = remembered if remembered is not None else self._main_input(record)
+            recovered_focus = False
+            if current is None and self.last_fill_stage == "未暴露可编辑输入框":
+                record, current, recovered_focus = self._recover_input_tree(
+                    target, record, allow_focused=remembered_focus is None)
+                preserve = bool(recovered_focus and originally_frontmost and remembered_focus is None)
             if current is None:
                 raise TargetError("未找到唯一可编辑的主输入框，请先点击 Agent 输入框再试。")
-            self.last_fill_stage = "聚焦主输入框"
-            record = self._focus_input(target, current, remembered=remembered is not None)
+            if not recovered_focus:
+                self.last_fill_stage = "聚焦主输入框"
+                record = self._focus_input(target, current, remembered=remembered is not None)
         self.last_fill_stage = "读取目标光标"
         self._assert_focus(target, current)
         selected = self._wait_selection(target, current)

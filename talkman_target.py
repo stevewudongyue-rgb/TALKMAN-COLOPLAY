@@ -335,13 +335,28 @@ class TargetController:
         known = {"检查目标窗口", "激活目标窗口", "查找主输入框", "聚焦主输入框",
                  "读取目标光标", "定位目标光标", "最终校验光标", "写入剪贴板", "粘贴到目标",
                  "多个聊天输入框同级", "未暴露可编辑输入框", "输入框缺少聊天标识",
-                 "未找到唯一聊天输入框", "输入框字符数不可读"}
+                 "未找到唯一聊天输入框", "输入框字符数不可读", "等待输入框加载"}
         if not isinstance(backend_stage, str) or backend_stage not in known:
             return stage
         focus_role = getattr(self.backend, "last_fill_focus_role", None)
         roles = {"窗口", "网页区域", "容器", "文字", "多行文字框", "单行文字框", "其他控件"}
         if backend_stage in {"未暴露可编辑输入框", "输入框缺少聊天标识", "未找到唯一聊天输入框"} and focus_role in roles:
-            return f"{backend_stage}（焦点：{focus_role}）"
+            backend_stage = f"{backend_stage}（焦点：{focus_role}）"
+        tree = getattr(self.backend, "last_fill_tree", None)
+        if isinstance(tree, dict):
+            details = []
+            for key, label in (("nodes", "扫描节点"), ("text_controls", "文字控件"),
+                               ("editable", "可编辑"), ("child_errors", "子树读取失败")):
+                value = tree.get(key)
+                if type(value) is int and 0 <= value <= 3000:
+                    details.append(f"{label}：{value}")
+            accessibility = getattr(self.backend, "last_fill_accessibility", None)
+            if accessibility in ("未尝试", "不支持，未尝试", "已启用，未重复设置", "已尝试并启用"):
+                details.append(f"辅助树：{accessibility}")
+            elif isinstance(accessibility, str) and accessibility.startswith("尝试失败"):
+                details.append("辅助树：启用失败")
+            if details:
+                backend_stage += "；" + "，".join(details)
         return backend_stage
 
     def _emit(self, callback: Callback | None, state: str, value: Any) -> None:
