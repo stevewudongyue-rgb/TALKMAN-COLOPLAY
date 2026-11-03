@@ -161,6 +161,9 @@ class PickerTests(unittest.TestCase):
             self.assertGreaterEqual(p.panel.winfo_y(),0)
             self.assertLessEqual(p.panel.winfo_x()+p.panel.winfo_width(),a.winfo_width())
             self.assertLessEqual(p.panel.winfo_y()+p.panel.winfo_height(),a.winfo_height())
+            record = a.compact_record if compact else a.replace_button
+            record_y = record.winfo_rooty()-a.winfo_rooty()
+            self.assertLessEqual(p.panel.winfo_y()+p.panel.winfo_height(), record_y)
 
 
 class ScreenTests(unittest.TestCase):

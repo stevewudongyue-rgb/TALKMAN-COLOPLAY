@@ -57,16 +57,16 @@ class InputPicker:
 
     def build(self):
         a = self.app
-        self.panel = ttk.Frame(a, padding=14, style='Panel.TFrame', borderwidth=1, relief='solid')
+        self.panel = ttk.Frame(a, padding=8, style='Panel.TFrame', borderwidth=1, relief='solid')
         self.title = tk.StringVar(a)
         self.note = tk.StringVar(a)
         ttk.Label(self.panel, textvariable=self.title, style='Panel.TLabel').pack(anchor='w')
         self.note_label = ttk.Label(self.panel, textvariable=self.note, style='PanelMuted.TLabel', wraplength=370)
-        self.note_label.pack(fill='x', pady=(6, 10))
+        self.note_label.pack(fill='x', pady=(2, 4))
         self.enter_send = tk.BooleanVar(a, False)
         self.send_toggle = ttk.Checkbutton(self.panel, text='此位置用回车发送 · 填入后再次确认',
             variable=self.enter_send, command=lambda: self.send_choices.update({self.index: self.enter_send.get()}))
-        self.send_toggle.pack(anchor='w', pady=(0, 8))
+        self.send_toggle.pack(anchor='w', pady=(0, 4))
         row = ttk.Frame(self.panel, style='Panel.TFrame')
         row.pack(fill='x')
         self.previous = a.button(row, '← 上一个', lambda: self.step(-1), style='PanelGhost.TButton')
@@ -76,12 +76,13 @@ class InputPicker:
         self.confirm_button = a.button(row, '确认位置', self.confirm, style='PanelGhost.TButton')
         self.confirm_button.pack(side='right')
         row2 = ttk.Frame(self.panel, style='Panel.TFrame')
-        row2.pack(fill='x', pady=(8, 0))
+        row2.pack(fill='x', pady=(2, 0))
         self.retry = a.button(row2, '重新查找', lambda: self.begin(self.target, source=self.source), style='PanelGhost.TButton')
         self.retry.pack(side='left')
         self.cancel_button = a.button(row2, '取消 · 保留原目标', self.cancel, style='PanelGhost.TButton')
         self.cancel_button.pack(side='right')
         for widget in (self.previous, self.next, self.confirm_button, self.retry, self.cancel_button):
+            widget.configure(padding=(8, 3))
             widget.bind('<Escape>', lambda _e: self.cancel_key())
         self.reposition()
         self.panel.lift()
@@ -106,7 +107,7 @@ class InputPicker:
         count = len(self.regions)
         self.title.set(f'{self.target.app} · 选择输入位置' + (f' {self.index+1}/{count}' if count else ''))
         self.note.set(self.error or ('正在查找可编辑区域…' if self.loading else
-            '正在确认位置…' if self.confirming else '旋转切换 · 点按旋钮确认 · 右上取消\n只有支持回车提交的位置才开启下方选项。'))
+            '正在确认位置…' if self.confirming else '旋转切换 · 点按旋钮确认 · 右上取消'))
         enabled = bool(count and not self.loading and not self.confirming and not self.error)
         if count:
             self.enter_send.set(self.send_choices.setdefault(self.index, self.regions[self.index].enter_send))
