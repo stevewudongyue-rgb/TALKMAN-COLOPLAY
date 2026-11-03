@@ -75,7 +75,7 @@ SCENES = (
          Scene('再说“确认这个位置”，完成同一轮选择。', (2,3), view='positions', status='已确认位置 2')),
     ),
     (
-        (Scene('长按旋钮至少 0.8 秒。', (4,), view='target', status='长按进度'),
+        (Scene('长按旋钮至少 0.5 秒。', (4,), view='target', status='长按进度'),
          Scene('松开旋钮：文字进入确认过的输入区域。', view='positions', status='已填入位置 2'),
          Scene('此位置请在目标应用内提交。', view='target', status='尚未发送')),
         (Scene('按住旋钮时转动，取消本次填入。', (4,), view='positions', status='已取消', turn=True),
