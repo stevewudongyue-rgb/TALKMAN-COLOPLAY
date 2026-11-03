@@ -76,6 +76,25 @@ class Interaction43Tests(unittest.TestCase):
         a.set_text('正文已改变')
         self.assertFalse(d.device_send_pending())
 
+    def test_device_long_fill_can_clear_editor_and_still_confirm_send(self):
+        a,d=self.app,self.device
+        a.set_text('待填入文字');a.clear_after_fill_var.set(True)
+        a.target_controller.close()
+        target=TargetWindow(1,2,'测试目标','隔离','test.exe')
+        a.target_controller=Mock(selected=target,windows=[target])
+        d.set_active(True)
+        d.execute('fill')
+        callback=a.target_controller.fill_with_receipt.call_args.args[1]
+        self.assertTrue(a.target_controller.fill_with_receipt.call_args.kwargs['allow_send_confirmation'])
+        callback('ok',FillReceipt('已填入','待填入文字','测试目标','隔离','2026-11-03',send_token='verified'))
+        self.drain()
+        self.assertEqual(a.current_text(),'')
+        self.assertTrue(d.device_send_pending())
+        self.assertGreater(d.snapshot()['send_seconds'],0)
+        self.assertEqual(d.snapshot()['labels']['ai'],'发送')
+        self.act('ai')
+        a.target_controller.send_filled.assert_called_once()
+
     def test_desktop_fill_without_safe_token_does_not_offer_device_send(self):
         a,d=self.app,self.device
         a.set_text('待填入文字');a.target_controller.close()
