@@ -77,7 +77,7 @@ class PickerTests(unittest.TestCase):
         s.feed(16,300);s.feed(0,400)
         self.assertTrue(p.active)
         a.fill_to_target();self.assertFalse(self.backend.writes)
-        s.feed(2,500);s.feed(0,550)
+        s.feed(2,500);s.feed(0,680)
         self.assertFalse(p.active)
         self.assertEqual(a.current_text(),before)
         self.assertEqual(a.target_controller.selected,self.backend.windows[0])
@@ -112,7 +112,7 @@ class PickerTests(unittest.TestCase):
         self.begin_device()
         self.assertIs(a.voice,voice)
         self.assertFalse(a.voice_stopping)
-        self.session.feed(4,300);self.session.feed(0,350)
+        self.session.feed(4,300);self.session.feed(0,480)
         self.assertTrue(a.voice_stopping)
 
     def test_cancel_navigation_stops_only_its_voice_session_and_escape_keeps_draft(self):
@@ -120,7 +120,7 @@ class PickerTests(unittest.TestCase):
         original=a.current_text()
         self.device.execute('rewrite')
         self.assertTrue(a.busy)
-        self.session.feed(2,300);self.session.feed(0,350)
+        self.session.feed(2,300);self.session.feed(0,480)
         self.assertFalse(self.picker.active)
         self.assertFalse(a.busy);self.assertIsNone(a.voice)
         self.assertEqual(a.current_text(),original)
