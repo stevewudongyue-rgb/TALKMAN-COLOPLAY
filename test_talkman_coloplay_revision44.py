@@ -24,11 +24,13 @@ class ContinueInputTests(unittest.TestCase):
         a, d = self.prepare_send()
         session = LocalDeviceSession(d)
         session.feed(4, 100)
+        session.feed(4, 280)
         self.assertIsNotNone(a.voice)
         self.assertEqual(a.voice_mode, 'insert')
         self.assertFalse(d.device_send_pending())
-        session.feed(0, 180)
-        session.feed(4, 240)
+        session.feed(0, 300)
+        session.feed(4, 360)
+        session.feed(4, 540)
         self.assertTrue(a.voice_stopping)
         a.target_controller.send_filled.assert_not_called()
 
@@ -38,10 +40,11 @@ class ContinueInputTests(unittest.TestCase):
         session.feed(1, 100)  # 提前按下左上，但尚未松手确认。
         session.feed(9, 120)
         session.feed(13, 150)
+        session.feed(13, 330)
         self.assertIsNotNone(a.voice)
         self.assertEqual(a.voice_mode, 'rewrite')
         self.assertFalse(d.device_send_pending())
-        session.feed(0, 200)
+        session.feed(0, 380)
         a.target_controller.send_filled.assert_not_called()
 
     def test_wifi_record_reservation_cancels_send_but_rotation_stays_locked(self):
@@ -129,7 +132,8 @@ class WifiFlowTests(unittest.TestCase):
           function usemod(...) end
           function btnpcfg(...) end
           function printh(...) end
-          function TMGesture(...) return {} end
+          function TMUpdateControls(...) return {} end
+          function TMCartridgeUpdate(...) return {init=function() end,connected=function() end} end
           TM_CONFIG={url='test',token='fake',config='test'}
           copas={addthread=function(f) jobs[#jobs+1]=coroutine.create(f) end,
                  sleep=function(t) coroutine.yield(t) end}

@@ -73,24 +73,27 @@ class WifiRecordingTests(unittest.TestCase):
         return dict(self.lua.globals().test_step(mask,t,arm,phase,ready))
 
     def test_rapid_second_click_waits_for_start_then_requests_stop_once(self):
-        self.assertEqual(self.step(4,100)['action'],'record')
+        self.assertEqual(self.step(4,100)['action'],'')
         self.step(0,120)
-        self.assertTrue(self.step(4,150)['deferred'])
-        self.assertEqual(self.step(0,180,'1')['sent'],1)
-        second=self.step(0,210,phase='opening')
+        self.step(4,150)
+        self.assertEqual(self.step(0,280)['action'],'record')
+        self.assertTrue(self.step(0,330)['deferred'])
+        self.assertEqual(self.step(0,360,'1')['sent'],1)
+        second=self.step(0,390,phase='opening')
         self.assertEqual((second['action'],second['id']),('record','2'))
-        self.assertEqual(self.step(0,240,'2','recording')['sent'],2)
-        self.assertEqual(self.step(0,260,phase='processing')['action'],'')
+        self.assertEqual(self.step(0,420,'2','recording')['sent'],2)
+        self.assertEqual(self.step(0,440,phase='processing')['action'],'')
 
     def test_cancel_disconnect_timeout_and_failed_start_drop_queued_stop(self):
         for reason in ('cancel','disconnect','timeout','failed'):
             with self.subTest(reason=reason):
                 self.setUp();self.step(4,100);self.step(0,120);self.step(4,150)
-                if reason=='cancel': result=self.step(2,180)
-                elif reason=='disconnect': result=self.step(0,180,ready=False)
-                elif reason=='timeout': result=self.step(0,1100)
+                self.step(0,280);self.step(0,330)
+                if reason=='cancel': self.step(2,360);result=self.step(0,540)
+                elif reason=='disconnect': result=self.step(0,360,ready=False)
+                elif reason=='timeout': result=self.step(0,1300)
                 else:
-                    self.step(0,180,'1');result=self.step(0,210,phase='idle')
+                    self.step(0,360,'1');result=self.step(0,390,phase='idle')
                 self.assertFalse(result['deferred'])
                 self.assertNotEqual(result['action'],'rewrite')
                 if reason=='failed':self.assertEqual(result['action'],'')
@@ -124,6 +127,7 @@ class InteractionTests(unittest.TestCase):
         base='原文\n'*90;result='修改后\n'*90
         a.geometry('900x700');a.set_text(base);a.preview_ai_var.set(True)
         a.review_result(base,result,'测试改写',lambda:None);a.update()
+        a.ai_review_text.yview_moveto(0)
         cursor=a.text.index('insert');before=a.ai_review_text.yview()[0]
         with patch.object(d,'preview_target') as target:
             self.act('next');self.assertGreater(a.ai_review_text.yview()[0],before)
@@ -136,7 +140,7 @@ class InteractionTests(unittest.TestCase):
         self.act('cancel_delete');self.assertEqual(a.current_text(),'甲')
         a.undo();self.assertEqual(a.current_text(),'甲👨‍👩‍👧‍👦')
         session=LocalDeviceSession(self.device)
-        session.feed(8,100);session.feed(10,200);session.feed(0,300)
+        session.feed(8,100);session.feed(10,200);session.feed(0,380)
         self.assertEqual(a.current_text(),'');a.undo()
         self.assertEqual(a.current_text(),'甲👨‍👩‍👧‍👦')
 

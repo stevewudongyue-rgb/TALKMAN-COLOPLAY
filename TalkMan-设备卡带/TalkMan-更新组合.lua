@@ -30,10 +30,11 @@ function TMUpdateControls(config)
   end
   for _,a in ipairs(self.base:step(b,t)) do
    if a=='record' or a=='rewrite' or a=='cancel_delete' or a=='clear' then
-    self.queue[#self.queue+1]={action=a,due=t+180,context=context}
+    self.queue[#self.queue+1]={action=a,due=t+180,context=context,key=(a=='record' or a=='rewrite') and 2 or 1}
    else out[#out+1]=a end
   end
-  while #self.queue>0 and self.queue[1].due<=t do
+  -- 已松开的短点按不可能再构成三键长按；立即执行，连续点按不会丢结束。
+  while #self.queue>0 and (self.queue[1].due<=t or not b[self.queue[1].key]) do
    local item=table.remove(self.queue,1)
    if item.context==context then out[#out+1]=item.action end
   end

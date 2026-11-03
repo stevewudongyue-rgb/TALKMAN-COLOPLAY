@@ -178,7 +178,7 @@ function _update()
   if pending and string.sub(pending.action,1,7)=='scroll_' then cancel_arm() end
  end
  modifier=buttons[3]
- for _,action in ipairs(gesture:step(buttons,now(),state.phase)) do
+ for _,action in ipairs(gesture:step(buttons,now(),state.action_context)) do
   if action=='update_hold' then
    turns=0;target_commit=false;scrolls=0;deferred=nil;cancel_arm();awaiting=nil
   elseif action=='cartridge_update' then

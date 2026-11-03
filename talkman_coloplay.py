@@ -256,6 +256,11 @@ class ColoPlayController:
             return 'input_select', '选择输入位置'
         return 'idle', '就绪'
 
+    def gesture_context(self):
+        phase=self.phase()[0]
+        if phase=='opening':phase='recording'
+        return f'{phase}:{self.app.operation_id}:{self.confirmation_marker()}'
+
     def stamp(self):
         a = self.app
         editor = self.editor_focus.sync()
@@ -606,6 +611,7 @@ class ColoPlayController:
             phase, title = 'blocked', '桌面设置中'
             target_name = '关闭后继续操作'
         return dict(ready=self.ready() or (self.connected() and paused), phase=phase, title=title,
+                    action_context=self.gesture_context(),
                     device_build=self.cartridge_version(),
                     cartridge_update=self.cartridge_offer,
                     input_selecting=a.input_picker.active,

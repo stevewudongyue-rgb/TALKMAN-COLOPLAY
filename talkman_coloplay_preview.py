@@ -125,7 +125,7 @@ class LocalDeviceSession:
         previous = self.runtime.mask
         if mask & 8 and not previous & 8:
             self.lease.cancel(); self.turns=0; c.cancel_navigation(); c.scroll.cancel()
-        for action in self.runtime.step(mask,self.now,c.phase()[0]):
+        for action in self.runtime.step(mask,self.now,c.gesture_context()):
             if action == 'update_hold':
                 self.lease.cancel();self.turns=0;c.cancel_navigation();c.cancel_device_send()
             elif action == 'cartridge_update':

@@ -147,8 +147,16 @@ class Interaction43Tests(unittest.TestCase):
 
     def test_right_upper_cancels_send_without_deleting_or_filling(self):
         a,d=self.prepare_send();s=LocalDeviceSession(d)
-        s.feed(2,100);s.feed(0,200)
+        s.feed(2,100);s.feed(0,280)
         self.assertFalse(d.device_send_pending());self.assertEqual(a.current_text(),'待填入文字')
+        a.target_controller.send_filled.assert_not_called()
+
+    def test_cancel_pressed_before_send_expiry_never_becomes_delete(self):
+        a,d=self.prepare_send();s=LocalDeviceSession(d)
+        before=a.current_text();s.feed(2,100)
+        a.pending_delivery['expires']=0
+        s.feed(0,280)
+        self.assertEqual(a.current_text(),before)
         a.target_controller.send_filled.assert_not_called()
 
     def test_press_before_receipt_and_expired_press_never_turn_into_ai_or_send(self):

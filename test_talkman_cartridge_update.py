@@ -52,10 +52,13 @@ class ChordTests(unittest.TestCase):
             r=DeviceRuntime();r.step(0,0)
             if mask&8:r.step(8,10)
             self.assertEqual(r.step(mask,100),[])
-            self.assertEqual(r.step(0,120),[])
+            self.assertEqual(r.step(0,120),[expected])
             self.assertEqual(r.step(0,279),[])
-            self.assertEqual(r.step(0,280),[expected])
+            self.assertEqual(r.step(0,280),[])
             self.assertEqual(r.step(0,500),[])
+            r.step(mask,600)
+            self.assertEqual(r.step(mask,779),[])
+            self.assertEqual(r.step(mask,780),['record' if mask==12 else 'cancel_delete' if mask==10 else expected])
 
     def test_boot_held_keys_and_fill_are_not_replayed(self):
         r=DeviceRuntime();self.assertEqual(r.step(14,0),[])

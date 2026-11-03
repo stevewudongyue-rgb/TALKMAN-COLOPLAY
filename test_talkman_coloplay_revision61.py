@@ -100,6 +100,13 @@ class Desktop61Tests(unittest.TestCase):
     def tick(self):
         self.device.tick();self.app.after_cancel(self.device.job);self.device.job=None
 
+    def test_two_quick_record_taps_preserve_start_and_stop(self):
+        session=LocalDeviceSession(self.device);self.device.local_session=session
+        session.feed(4,100);session.feed(0,120)
+        self.assertIsNotNone(self.app.voice)
+        session.feed(4,150);session.feed(0,170)
+        self.assertTrue(self.app.voice_stopping)
+
     def test_update_preparation_busy_current_stale_and_duplicate(self):
         d=self.device;d.peer='peer';d.device_build=60
         with patch.object(d,'phase',return_value=('recording','')):
