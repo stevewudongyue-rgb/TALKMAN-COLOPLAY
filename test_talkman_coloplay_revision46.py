@@ -27,7 +27,8 @@ def device_runtime(source=None, failure='none'):
         function btn(...) return false end
         function toidle() end
         function TMDraw(...) end
-        function TMGesture(...) return {step=function() return {} end} end
+        function TMUpdateControls(...) return {step=function() return {} end} end
+        function TMCartridgeUpdate(...) return {init=function() end,connected=function() end} end
         TM_CONFIG={url='isolated',token='fake',config='isolated',keys={}}
     ''')
     lua.execute(Path('TalkMan-设备卡带/colox_net.lua').read_text('utf-8'))

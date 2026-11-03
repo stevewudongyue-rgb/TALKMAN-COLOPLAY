@@ -690,6 +690,9 @@ class EditorTests(unittest.TestCase):
         def check_controls(page, window):
             def walk(widget):
                 for child in widget.winfo_children():
+                    # 收起的说明区域不参与布局；展开后另行检查其全部控件。
+                    if not child.winfo_manager():
+                        continue
                     yield child
                     yield from walk(child)
             for child in walk(page):
@@ -728,6 +731,15 @@ class EditorTests(unittest.TestCase):
                             a.settings_notebook.select(page)
                             window.update()
                             check_controls(page, window)
+                            if page_name == "coloplay":
+                                help_button = next(child for child in page.winfo_children()
+                                                   if 'text' in child.keys()
+                                                   and child.cget('text') == '卡带版本与升级说明')
+                                help_button.invoke()
+                                window.update()
+                                check_controls(page, window)
+                                help_button.invoke()
+                                window.update()
                             if page_name == "asr":
                                 for provider in PROVIDERS.values():
                                     a.asr_provider_choice.set(provider.label)
