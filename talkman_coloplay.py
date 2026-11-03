@@ -1028,6 +1028,15 @@ def _smoke_check_ui(directory, report_path, report):
             checked('先把想法' in app.current_text(),'退出保留编辑正文与电脑客户端')
         device.export(Path(directory)/'TalkMan-卡带导出')
         checked((Path(directory)/'TalkMan-卡带导出/colox_ws.lua').is_file(),'成品内完整包含卡带与官方网络库')
+        from talkman_coloplay_update import CartridgeDownload
+        import urllib.request
+        download=CartridgeDownload('127.0.0.1')
+        try:
+            opener=urllib.request.build_opener(urllib.request.ProxyHandler({}))
+            with opener.open(download.offer['url'],timeout=2) as response:payload=response.read()
+            checked(hashlib.sha1(payload).hexdigest()==download.offer['sha1'],
+                    '成品附带通用更新 ROM，回环下载摘要一致')
+        finally:download.close()
         from talkman_coloplay_usb import jpeg_packet, SerialFrames
         import libusb_package
         checked(libusb_package.get_libusb1_backend() is not None,'成品包含可加载的 USB 运行库')
@@ -1079,10 +1088,12 @@ def _smoke_check_ui(directory, report_path, report):
         before=app.current_text()
         sim.canvas.event_generate('<ButtonPress-1>',x=440,y=145)
         sim.canvas.event_generate('<ButtonRelease-1>',x=440,y=145)
+        pump_until(lambda:app.current_text()==before[:-1])
         checked(app.current_text()==before[:-1],'模拟器右上删除光标前一个字')
         app.undo();checked(app.current_text()==before,'模拟器删除可以撤销')
         sim.canvas.event_generate('<ButtonPress-1>',x=440,y=145,state=1)
         sim.canvas.event_generate('<ButtonRelease-1>',x=440,y=145,state=1)
+        pump_until(lambda:app.current_text()=='')
         checked(app.current_text()=='','模拟器 Shift＋右上清空整个编辑区')
         app.undo();checked(app.current_text()==before,'组合清空可以一步撤销')
         sim.canvas.event_generate('<ButtonPress-1>',x=80,y=145,state=1)
