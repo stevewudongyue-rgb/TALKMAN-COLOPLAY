@@ -268,20 +268,11 @@ function copas.send(client, data, from, to,sendbrokentimeout)
 
 	repeat
 		s, err, lastIndex = client:send(data, lastIndex + 1, to)
-		-- adds extra corrotine swap
-		-- garantees that high throuput dont take other threads to starvation
-		if (math.random(100) > 90) then
-			_writing_log[client] = sendbrokentimeout or client:timeout() or SEND_BROKEN_TIMEOUT
-			_writing:insert (client)
-			_writing:push (client, coroutine_running())
-			coroutine_yield(true)
-			sendbrokentimeout=_writing_log[client]
-			if not sendbrokentimeout then
-				return nil,'timeout'
-			end
-		end
 		if s or s==nil then
 			_writing_log[client] = nil
+			-- 已完成写入不能再等待 socket 可写：设备未再次报告事件时会误超时。
+			-- 仅让出一轮调度，保留成功结果；部分写入仍走下面的可写等待。
+			if s and math.random(100) > 90 then copas.sleep(0) end
 			return s, err,lastIndex
 		end
 		_writing_log[client] = sendbrokentimeout or client:timeout() or SEND_BROKEN_TIMEOUT

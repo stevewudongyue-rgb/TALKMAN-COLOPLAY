@@ -17,6 +17,7 @@ class InputPicker:
         self.ticket = None
         self.target = None
         self.error = ''
+        self.send_choices = {}
         self.loading = False
         self.confirming = False
         self.checking = False
@@ -41,6 +42,7 @@ class InputPicker:
         self.active, self.loading, self.source = True, True, source
         self.target, self.ticket, self.regions, self.index = target, None, [], 0
         self.error = ''
+        self.send_choices = {}
         a.disarm_delivery()
         a.sync_mode_var.set(False)
         a.live_sync.configure(False)
@@ -61,6 +63,10 @@ class InputPicker:
         ttk.Label(self.panel, textvariable=self.title, style='Panel.TLabel').pack(anchor='w')
         self.note_label = ttk.Label(self.panel, textvariable=self.note, style='PanelMuted.TLabel', wraplength=370)
         self.note_label.pack(fill='x', pady=(6, 10))
+        self.enter_send = tk.BooleanVar(a, False)
+        self.send_toggle = ttk.Checkbutton(self.panel, text='此位置用回车发送 · 填入后再次确认',
+            variable=self.enter_send, command=lambda: self.send_choices.update({self.index: self.enter_send.get()}))
+        self.send_toggle.pack(anchor='w', pady=(0, 8))
         row = ttk.Frame(self.panel, style='Panel.TFrame')
         row.pack(fill='x')
         self.previous = a.button(row, '← 上一个', lambda: self.step(-1), style='PanelGhost.TButton')
@@ -100,8 +106,11 @@ class InputPicker:
         count = len(self.regions)
         self.title.set(f'{self.target.app} · 选择输入位置' + (f' {self.index+1}/{count}' if count else ''))
         self.note.set(self.error or ('正在查找可编辑区域…' if self.loading else
-            '正在确认位置…' if self.confirming else '旋转切换 · 点按旋钮确认 · 右上取消\n确认前不会填入；此位置暂需在目标内提交。'))
+            '正在确认位置…' if self.confirming else '旋转切换 · 点按旋钮确认 · 右上取消\n只有支持回车提交的位置才开启下方选项。'))
         enabled = bool(count and not self.loading and not self.confirming and not self.error)
+        if count:
+            self.enter_send.set(self.send_choices.setdefault(self.index, self.regions[self.index].enter_send))
+        self.send_toggle.state(['!disabled'] if enabled else ['disabled'])
         for button in (self.previous, self.next, self.confirm_button):
             button.state(['!disabled'] if enabled else ['disabled'])
         self.retry.state(['disabled'] if self.loading or self.confirming else ['!disabled'])
@@ -120,11 +129,17 @@ class InputPicker:
         if (not self.active or not self.ticket or self.error or self.loading or self.confirming
                 or (self.app.busy and getattr(self.app, 'voice_input_navigation', False))):
             return
+        if not self.outline.show(self.target, self.regions[self.index]):
+            self.outline.hide()
+            self.error = '无法显示输入位置高亮，请重新选择；本次未确认。'
+            self.render()
+            return
         self.confirming = True
         generation, index = self.generation, self.index
         self.render()
         self.app.target_controller.inspect_input(self.ticket, index,
-            lambda state, value: self.events.put((generation, 'confirm', index, state, value)), confirm=True)
+            lambda state, value: self.events.put((generation, 'confirm', index, state, value)),
+            confirm=True, enter_send=self.enter_send.get())
 
     def navigate(self, command):
         if not self.active:
@@ -166,12 +181,15 @@ class InputPicker:
                 self.regions[index] = value['region']
                 if not self.outline.show(self.target, value['region']):
                     self.outline.hide()
+                    self.error = '无法显示输入位置高亮，请重新选择；本次未确认。'
             elif kind == 'confirm':
                 label = self.app.target_controller.label
                 warning = value.get('warning', '')
                 self.cancel(quiet=True)
                 self.app.target_label_var.set(label)
-                self.app.status_var.set(f'已确认：{label}；此位置仅填入，提交请在目标内完成。' + warning)
+                mode = ('填入核验后可再次确认发送。' if value['region'].enter_send else
+                        '此位置仅填入，提交请在目标内完成。')
+                self.app.status_var.set(f'已确认：{label}；{mode}' + warning)
                 return
             self.render()
         if self.ticket and not self.error and not self.confirming and not self.checking and time.monotonic()-self.last_check >= .3:

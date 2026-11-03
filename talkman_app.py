@@ -1987,6 +1987,10 @@ class TalkManApp(TranslationUIMixin, DeliveryUIMixin, ConventionsUIMixin, AIEdit
                 self.finish_normal_fill(state, value)
                 if token is not None:
                     self.coloplay.finish_device_fill(token)
+                from talkman_target import InputLocationError
+                if state == 'error' and isinstance(value, InputLocationError):
+                    self.input_picker.begin(source='device' if token is not None else 'desktop')
+                    self.status_var.set('原输入位置已失效，请重新确认位置后再次填入；本次没有写入。')
             elif kind in ('target_send', 'target_send_device'):
                 self.target_filling = False
                 self.finish_target_fill(state, value)

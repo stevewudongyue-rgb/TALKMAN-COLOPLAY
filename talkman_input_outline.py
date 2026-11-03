@@ -16,7 +16,10 @@ class InputOutline:
                     self.native = MacInputOutline()
                 else:
                     return False
-            return self.native.draw_region(target, region.rect, region.number)
+            shown = self.native.draw_region(target, region.rect, region.number)
+            if not shown:
+                self.hide()
+            return shown
         except Exception:
             self.hide()
             return False

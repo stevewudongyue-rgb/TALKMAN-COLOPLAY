@@ -375,21 +375,39 @@ class WindowsTargetBackend:
         return sorted(entries, key=lambda row: (row[1][1], row[1][0]))
 
     def inspect_input(self, window, handle):
+        from talkman_target import InputLocationError
         valid = self.validate_window(window)
         hwnd, pid, identity, title, element, runtime = handle
-        if (valid is None or (valid.id, valid.pid, valid.identity, valid.title) != (hwnd, pid, identity, title)
-                or tuple(element.GetRuntimeId()) != runtime or not self._is_editable(element)
-                or not self._is_descendant_of(element, self._window_element(valid))):
-            raise TargetError('所选输入区域已消失或窗口已变化，请重新选择输入位置。')
-        rect = self._element_rect(element)
+        try:
+            matches = (valid is not None and (valid.id, valid.pid, valid.identity) == (hwnd, pid, identity)
+                       and tuple(element.GetRuntimeId()) == runtime and self._is_editable(element)
+                       and self._is_descendant_of(element, self._window_element(valid)))
+            rect = self._element_rect(element) if matches else None
+        except Exception as exc:
+            # 原控件销毁后 UIA 也可能直接抛错，仍走重新选择，不能回退到其它输入框。
+            raise InputLocationError('所选输入区域已无法读取，请重新选择输入位置。') from exc
+        if not matches:
+            raise InputLocationError('所选输入区域已消失或窗口已变化，请重新选择输入位置。')
         if not valid_rect(rect):
-            raise TargetError('所选输入区域已不可见，请重新选择输入位置。')
+            raise InputLocationError('所选输入区域已不可见，请重新选择输入位置。')
         return rect
 
     def bind_input(self, window, handle):
         self._bound_input = handle
         if handle is not None:
             self.inspect_input(window, handle)
+
+    def input_supports_enter(self, window, handle):
+        """已知主聊天框才默认开放回车；其它位置由用户在选择时明确勾选。"""
+        self.inspect_input(window, handle)
+        identity = str(window.identity).replace('\\', '/').casefold()
+        element = handle[4]
+        name = str(self._current(element, 'CurrentName', '') or '').strip().casefold()
+        classes = str(self._current(element, 'CurrentClassName', '') or '').casefold().split()
+        known_app = ('openai.codex' in identity or 'openai.chatgpt' in identity
+                     or identity.rsplit('/', 1)[-1] in ('chatgpt.exe', 'codex.exe'))
+        return bool(known_app and 'prosemirror' in classes
+                    and name in ('work with codex', 'work with chatgpt'))
 
     def _bound_element(self, window):
         self.inspect_input(window, self._bound_input)

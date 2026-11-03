@@ -66,8 +66,10 @@ class StateServer:
                 self.peer = (peer_id, ws)
                 accepted = True
             self.events.put(('connected', peer_id, None))
-            self.diagnostics.info('连接建立 会话=%s 模式=%s', peer_id,
-                                  '顺序收发' if hello.get('heartbeat') == 'state-ack' else '旧版收发')
+            build = hello.get('device_build')
+            build = build if type(build) is int and 1 <= build <= 100000 else '未知'
+            self.diagnostics.info('连接建立 会话=%s 模式=%s 卡带构建=%s', peer_id,
+                                  '顺序收发' if hello.get('heartbeat') == 'state-ack' else '旧版收发', build)
             # 新卡带以状态帧驱动下一轮收发，100ms 上限兼顾旋钮响应和设备负载。
             interval = .1 if hello.get('heartbeat') == 'state-ack' else .25
             last_rx = time.monotonic()

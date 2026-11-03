@@ -7,6 +7,7 @@ import uuid
 class InputRegion:
     number: int
     rect: tuple[int, int, int, int]
+    enter_send: bool = False
 
 
 def valid_rect(rect):
@@ -46,8 +47,12 @@ class InputLocationControllerMixin:
             self._input_selecting = False
             self._input_draft = None
 
-    def inspect_input(self, ticket, index, callback, *, confirm=False):
-        self._queue.put(('input_confirm' if confirm else 'input_inspect', callback, (ticket, index)))
+    def inspect_input(self, ticket, index, callback, *, confirm=False, enter_send=None):
+        self._queue.put(('input_confirm' if confirm else 'input_inspect', callback, (ticket, index, enter_send)))
+
+    def _input_send_default(self, target, handle):
+        method = getattr(self.backend, 'input_supports_enter', None)
+        return bool(callable(method) and method(target, handle) is True)
 
     def _bind_chosen_input(self, target):
         from talkman_target import TargetError
@@ -82,7 +87,8 @@ class InputLocationControllerMixin:
                     raise TargetError('可编辑区域过多，请先缩小目标页面范围后重新选择。')
                 if any(not valid_rect(rect) for _, rect in entries):
                     raise TargetError('输入区域坐标无法验证，请重新选择。')
-                regions = [InputRegion(i + 1, tuple(rect)) for i, (_handle, rect) in enumerate(entries)]
+                regions = [InputRegion(i + 1, tuple(rect), self._input_send_default(target, handle))
+                           for i, (handle, rect) in enumerate(entries)]
                 ticket = uuid.uuid4().hex
                 with self._lock:
                     if generation != self._input_generation or not self._input_selecting:
@@ -90,7 +96,7 @@ class InputLocationControllerMixin:
                     self._input_draft = (ticket, target, entries, generation)
                 self._emit(callback, 'ok', dict(ticket=ticket, target=target, regions=regions))
                 return
-            ticket, index = value
+            ticket, index, enter_send = value
             with self._lock:
                 draft = getattr(self, '_input_draft', None)
                 if not draft or draft[0] != ticket or not self._input_selecting:
@@ -102,7 +108,8 @@ class InputLocationControllerMixin:
             rect = self.backend.inspect_input(target, handle)
             if not valid_rect(rect):
                 raise TargetError('输入区域已隐藏或移出可见范围，请重新选择。')
-            region = InputRegion(index + 1, tuple(rect))
+            enabled = self._input_send_default(target, handle) if enter_send is None else enter_send is True
+            region = InputRegion(index + 1, tuple(rect), enabled)
             with self._lock:
                 if generation != self._input_generation or self._input_draft is not draft:
                     return

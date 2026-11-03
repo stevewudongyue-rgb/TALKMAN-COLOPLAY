@@ -188,6 +188,8 @@ class MacBindingTests(unittest.TestCase):
         entries = b.list_inputs(target); self.assertEqual(len(entries), 2)
         b.bind_input(target, entries[1][0])
         old_focus = FocusToken(target.hwnd, target.pid, target.process_started, first)
+        window.attributes['AXTitle'] = '正常对话标题更新'
+        self.assertEqual(b.inspect_input(target, entries[1][0]), (10,160,300,80))
         def paste():
             field = root.attributes['AXFocusedUIElement']
             field.attributes['AXValue'] = '内容'
@@ -224,6 +226,8 @@ class WindowsBindingTests(unittest.TestCase):
         b._pattern = lambda e,*_:e
         entries = b.list_inputs(target); self.assertEqual(len(entries),2)
         b.bind_input(target, entries[1][0])
+        from dataclasses import replace
+        target = replace(target, title='正常对话标题更新')
         self.assertIs(b._find_editable(target),second)
         self.assertIsNone(b._find_editable(target,focused_only=True))
         b._uia.GetFocusedElement = lambda:second

@@ -88,7 +88,7 @@ local function network_loop()
     -- 每次重连在同一个任务内完成握手、心跳、动作发送和状态接收。
     -- 不依赖只在启动时创建一次、异常退出后无法恢复的发送协程。
     local ok=sock:send(json.encode({type='hello',version=1,token=cfg.token,config=cfg.config,
-                                   heartbeat='state-ack',device_build=47}))
+                                   heartbeat='state-ack',device_build=59}))
     local last_heartbeat=-999
     while ok and not sock:isclosed() and not exited do
      if exiting then

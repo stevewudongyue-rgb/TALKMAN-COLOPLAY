@@ -41,6 +41,10 @@ class TargetError(RuntimeError):
     """目标选择、重连或投递失败。消息面向中文界面。"""
 
 
+class InputLocationError(TargetError):
+    """填入前固定控件失效；界面可重新开启位置选择，但不得自动重贴。"""
+
+
 class DeliveryReadError(TargetError):
     """固定阶段码供诊断使用；不把系统异常或输入框内容带入报告。"""
 
@@ -906,8 +910,9 @@ class TargetController(InputLocationControllerMixin):
             if receipt:
                 stage = "核验发送确认"
                 specific_input = self.selected_input
-                send_token = self._arm_filled_send(target, text, snapshot, epoch, allow_send=specific_input is None) if allow_send_confirmation else ''
-                if specific_input is not None:
+                can_send = specific_input is None or specific_input.enter_send
+                send_token = self._arm_filled_send(target, text, snapshot, epoch, allow_send=can_send) if allow_send_confirmation else ''
+                if not can_send:
                     message = str(message) + f' 位置 {specific_input.number} 的提交方式尚未验证，请在目标内确认。'
                 elif allow_send_confirmation and not send_token:
                     message = str(message) + ' 无法核对目标正文，请在目标内手动发送。'
@@ -921,7 +926,8 @@ class TargetController(InputLocationControllerMixin):
         except TargetError as exc:
             stage = self._fill_stage(stage)
             self._record_fill(stage, "未完成", target)
-            self._emit(callback, "error", str(exc) or f"{stage}未完成，请在设置中复制诊断。")
+            self._emit(callback, "error", exc if isinstance(exc, InputLocationError) else
+                       str(exc) or f"{stage}未完成，请在设置中复制诊断。")
         except Exception:
             stage = self._fill_stage(stage)
             self._record_fill(stage, "未完成（程序异常）", target)

@@ -867,7 +867,7 @@ class MacTargetBackend:
             if self._is_editable(element) and self._belongs(element, record):
                 rect = api.input_rect(element)
                 if valid_rect(rect):
-                    entries.append(((target, str(api.get(record.element, 'AXTitle', '') or ''), element), rect))
+                    entries.append(((target, record.element, element), rect))
                     if len(entries) > 32:
                         raise TargetError('输入区域超过 32 个，请缩小目标页面范围后重选。')
             pending.extend(list(api.get(element, 'AXChildren', []) or []))
@@ -880,14 +880,16 @@ class MacTargetBackend:
     @_with_native_pool
     def inspect_input(self, target, handle):
         from talkman_input_locations import valid_rect
-        previous, title, element = handle
+        from talkman_target import InputLocationError
+        previous, window_element, element = handle
         record = self._validate(target)
-        if (record is None or previous != target or str(self._api.get(record.element, 'AXTitle', '') or '') != title
+        identity = lambda t: (t.hwnd, t.pid, t.identity, t.process_started)
+        if (record is None or identity(previous) != identity(target) or not self._api.equal(record.element, window_element)
                 or not self._belongs(element, record) or not self._is_editable(element)):
-            raise TargetError('所选输入区域已消失或窗口已变化，请重新选择输入位置。')
+            raise InputLocationError('所选输入区域已消失或窗口已变化，请重新选择输入位置。')
         rect = self._api.input_rect(element)
         if not valid_rect(rect):
-            raise TargetError('所选输入区域已不可见，请重新选择输入位置。')
+            raise InputLocationError('所选输入区域已不可见，请重新选择输入位置。')
         return rect
 
     def bind_input(self, target, handle):

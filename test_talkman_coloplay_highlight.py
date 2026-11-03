@@ -63,6 +63,13 @@ class OutlineTests(unittest.TestCase):
             self.assertEqual((bound.left,bound.top,bound.right-bound.left),(region[0],region[1],region[2]))
             self.assertEqual(u.SendMessageW(outline.native.badge,0x84,0,0),-1)
             self.assertEqual(u.SendMessageW(outline.native.badge,0x21,0,0),3)
+            u.GetThreadDpiAwarenessContext.restype=C.c_void_p
+            previous_dpi=u.GetThreadDpiAwarenessContext()
+            for negative_rect in ((-850,120,260,70),(120,-450,260,70)):
+                self.assertTrue(outline.native.draw_region(target,negative_rect,3))
+                self.assertEqual(u.GetThreadDpiAwarenessContext(),previous_dpi)
+                with outline.native.dpi():u.GetWindowRect(outline.native.windows[0],C.byref(bound))
+                self.assertEqual((bound.left,bound.top,bound.right-bound.left),negative_rect[:3])
             outline.native.hide()
             self.assertFalse(u.IsWindowVisible(outline.native.badge))
             app.geometry('+220+210');app.update()

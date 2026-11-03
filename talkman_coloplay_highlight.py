@@ -133,6 +133,8 @@ class WindowsOutline:
     @contextmanager
     def dpi(self):
         old=self.u.SetThreadDpiAwarenessContext(C.c_void_p(-4))
+        if not old:
+            raise C.WinError(C.get_last_error())
         try: yield
         finally:
             if old:self.u.SetThreadDpiAwarenessContext(old)
@@ -177,7 +179,9 @@ class WindowsOutline:
                 self.badge=self.u.CreateWindowExW(0x080800A0,self.name,'',0x80000000,0,0,32,26,None,None,self.instance,None)
                 if not self.badge:return False
                 self.u.SetLayeredWindowAttributes(self.badge,0,255,2)
-            self.u.SetWindowPos(self.badge,W.HWND(-1),x,y,32,26,0x0050)
+            if not self.u.SetWindowPos(self.badge,W.HWND(-1),x,y,32,26,0x0050):
+                self.hide()
+                return False
             self.u.InvalidateRect(self.badge,None,True)
             self.u.UpdateWindow(self.badge)
         return True
