@@ -13,7 +13,7 @@ import time
 from dataclasses import dataclass
 from typing import Any, Iterable, Optional
 
-from talkman_target import TargetError
+from talkman_target import TargetError, DeliveryReadError, SendSnapshot
 
 
 @dataclass(frozen=True)
@@ -490,22 +490,30 @@ class WindowsTargetBackend:
             raise TargetError('目标窗口不可用，请重新选择。')
         element = self._find_editable(valid)
         if element is None:
-            raise TargetError('未找到唯一的主输入框，无法打开同步。')
+            raise DeliveryReadError('no_input', '未找到唯一的主输入框，无法打开同步。')
         if require_write:
             pattern = self._pattern(element, self._VALUE_PATTERN, 'IUIAutomationValuePattern')
             if pattern.CurrentIsReadOnly:
                 raise TargetError('此输入框不支持后台同步，请关闭同步后使用「填入」。')
         return element, valid.title
 
-    def read_sync(self, window, handle, *, require_write=True):
+    @staticmethod
+    def _known_empty_hint(window, element, value):
+        identity = (str(window.app) + ' ' + str(window.identity)).casefold()
+        return (('chatgpt' in identity or 'codex' in identity)
+                and 'prosemirror' in str(WindowsTargetBackend._current(element, 'CurrentClassName', '')).casefold().split()
+                and value.strip().casefold() in ('work with chatgpt', 'work with codex')
+                and str(WindowsTargetBackend._current(element, 'CurrentName', '')).strip() == value.strip())
+
+    def read_sync(self, window, handle, *, require_write=True, allow_hint_snapshot=False):
         valid = self.validate_window(window)
         element, title = handle
         if (valid is None or valid.title != title or not self._is_editable(element)
                 or not self._is_descendant_of(element, self._window_element(valid))):
-            raise TargetError('目标窗口或对话已改变，同步已暂停。')
+            raise DeliveryReadError('window_changed', '目标窗口或对话已改变，同步已暂停。')
         main = self._find_editable(valid)
         if main is None or not self._ensure_uia().CompareElements(main, element):
-            raise TargetError('目标主输入框已改变，同步已暂停。')
+            raise DeliveryReadError('input_changed', '目标主输入框已改变，同步已暂停。')
         try:
             pattern = self._pattern(element, self._VALUE_PATTERN, 'IUIAutomationValuePattern')
             value = pattern.CurrentValue
@@ -516,21 +524,27 @@ class WindowsTargetBackend:
             pattern = self._pattern(element, self._TEXT_PATTERN, 'IUIAutomationTextPattern')
             readonly = pattern.DocumentRange.GetAttributeValue(self._TEXT_ATTRIBUTE_IS_READ_ONLY)
             if not isinstance(readonly, (bool, int)) or readonly != 0:
-                raise TargetError('无法确认目标输入框可编辑，本次未下发。')
+                raise DeliveryReadError('readonly', '无法确认目标输入框可编辑，本次未下发。')
             value = pattern.DocumentRange.GetText(-1)
         else:
             if pattern.CurrentIsReadOnly:
-                raise TargetError('目标输入框为只读，本次未下发。')
+                raise DeliveryReadError('readonly', '目标输入框为只读，本次未下发。')
         if not isinstance(value, str):
-            raise TargetError('无法读回目标输入框，同步已暂停。')
+            raise DeliveryReadError('unreadable', '无法读回目标输入框，同步已暂停。')
         # 部分 ChatGPT 版本把编辑器提示同时暴露为 Name 和 Value。
         # 无法证明它是不是实际正文时停止同步，不能将其拼成前缀，更不能删除目标文字。
-        if ('chatgpt' in (str(valid.app) + ' ' + str(valid.identity)).casefold()
-                and str(self._current(element, 'CurrentClassName', '')).casefold() == 'prosemirror'
-                and value.strip().casefold() == 'work with chatgpt'
-                and str(self._current(element, 'CurrentName', '')).strip() == value.strip()):
-            raise TargetError('目标返回的文字与 ChatGPT 输入提示相同，无法确认实际正文；已暂停同步，请关闭同步后使用「填入 Agent」。')
+        if self._known_empty_hint(valid, element, value) and not allow_hint_snapshot:
+            raise DeliveryReadError('placeholder', '目标返回的文字与 ChatGPT／Codex 输入提示相同，无法确认实际正文；已暂停同步，请关闭同步后使用「填入 Agent」。')
         return value if require_write else value.replace('\r\n', '\n')
+
+    def capture_delivery_snapshot(self, window):
+        handle = self.open_delivery(window)
+        before = self.read_sync(window, handle, require_write=False, allow_hint_snapshot=True)
+        hint = self._known_empty_hint(window, handle[0], before)
+        # A single paragraph end is observed on the empty native ProseMirror
+        # control. Never trim the actual body or accept other whitespace changes.
+        paragraph_end = '\n' if hint and before.endswith('\n') and not before.endswith('\n\n') else ''
+        return SendSnapshot(handle, before, empty_hint=hint, paragraph_end=paragraph_end)
 
     def open_delivery(self, window):
         return self.open_sync(window, require_write=False)

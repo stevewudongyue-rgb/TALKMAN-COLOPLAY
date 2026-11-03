@@ -40,6 +40,24 @@ class TargetError(RuntimeError):
     """目标选择、重连或投递失败。消息面向中文界面。"""
 
 
+class DeliveryReadError(TargetError):
+    """固定阶段码供诊断使用；不把系统异常或输入框内容带入报告。"""
+
+    def __init__(self, reason, message):
+        super().__init__(message)
+        self.reason = reason
+
+
+@dataclass(frozen=True)
+class SendSnapshot:
+    handle: Any
+    before: str
+    # UIA can expose a hint as Value/Text. Keep the observed value intact;
+    # only exact post-paste text may establish the alternative empty-editor case.
+    empty_hint: bool = False
+    paragraph_end: str = ''
+
+
 def is_agent_window(window) -> bool:
     """仅用窗口身份作可关闭的列表筛选，不读取窗口正文或影响填入校验。"""
     get = window.get if isinstance(window, dict) else lambda key, default='': getattr(window, key, default)
@@ -273,6 +291,7 @@ class TargetController:
         self._pending_send = None
         self._refresh_report = "尚未刷新目标窗口。"
         self._last_fill_report = "尚未尝试填入。"
+        self._last_send_report = "尚未核验填入后的发送确认。"
         self._thread = threading.Thread(target=self._run, name="TalkManTarget", daemon=True)
         self._thread.start()
 
@@ -322,6 +341,30 @@ class TargetController:
     def last_fill_report(self) -> str:
         with self._lock:
             return self._last_fill_report
+
+    @property
+    def last_send_report(self) -> str:
+        with self._lock:
+            return self._last_send_report
+
+    def _record_send_check(self, stage, reason, *, snapshot=None, text=None, after=None, attempts=0):
+        details = []
+        for label, value in (("填入前", snapshot.before if snapshot else None), ("本次填入", text), ("读回", after)):
+            if isinstance(value, str):
+                details.append(f"{label}：{len(value)} 字符")
+        if attempts:
+            details.append(f"读回次数：{attempts}")
+        with self._lock:
+            self._last_send_report = f"发送核验：{stage} · {reason}" + ("；" + "，".join(details) if details else "")
+
+    @staticmethod
+    def _send_read_reason(error):
+        reasons = {
+            'window_changed': '目标窗口或会话变化', 'input_changed': '主输入框控件变化',
+            'no_input': '未找到唯一主输入框', 'readonly': '输入框可编辑性无法确认',
+            'unreadable': '输入框正文不可读取', 'placeholder': '读到空框提示，尚不能确认正文',
+        }
+        return reasons.get(error.reason, '正文读取失败') if isinstance(error, DeliveryReadError) else '正文读取失败'
 
     def _record_fill(self, stage: str, result: str, target: TargetWindow | None = None) -> None:
         name = target.app if target is not None else "未选目标"
@@ -524,23 +567,37 @@ class TargetController:
     def _send_filled(self, callback, token):
         with self._lock:
             pending, self._pending_send = self._pending_send, None
+        stage = '确认凭据'
         try:
             if pending is None or not token or pending[0] != token:
+                self._record_send_check('二次发送', '确认凭据已失效或已使用')
                 raise TargetError('这次下发确认已失效，请检查目标输入框。')
             _, epoch, target, handle, expected, expires = pending
             def current():
                 return (not self._stop.is_set() and epoch == self._sync_epoch
                         and time.monotonic() < expires and self._selected == target)
             _open, read, send = self._delivery_methods()
-            if not current() or read(target, handle) != expected:
+            if not current():
+                self._record_send_check('二次发送', '确认时间已过' if time.monotonic() >= expires else '目标或操作已变化')
                 raise TargetError('目标、文字或确认时间已变化，本次未下发；请检查目标输入框。')
+            stage = '重新读取正文'
+            actual = read(target, handle)
+            if actual != expected:
+                self._record_send_check('二次发送', '目标正文已变化', text=expected, after=actual)
+                stage = '正文不符'
+                raise TargetError('目标、文字或确认时间已变化，本次未下发；请检查目标输入框。')
+            stage = '聚焦并触发回车'
             send(target, handle, expected, current)
+            self._record_send_check('二次发送', '已触发回车，需在目标确认发送结果')
             result = FillReceipt('已向目标按下回车，请在目标确认发送结果。', expected, target.app, target.title,
                 datetime.now().astimezone().isoformat(timespec='seconds'), '已触发下发')
             self._emit(callback, 'ok', result)
         except TargetError as exc:
+            if stage in ('重新读取正文', '聚焦并触发回车'):
+                self._record_send_check('二次发送 · ' + stage, self._send_read_reason(exc) if stage == '重新读取正文' else '未完成，不自动重试')
             self._emit(callback, 'error', str(exc))
         except Exception:
+            self._record_send_check('二次发送 · ' + stage, '结果无法确认，不自动重试')
             self._emit(callback, 'error', '无法确认下发结果，不会自动重试；请检查目标输入框。')
 
     def _delivery_methods(self):
@@ -552,23 +609,47 @@ class TargetController:
     def _prepare_send_snapshot(self, target):
         open_target, read, _send = self._delivery_methods()
         if not all(callable(method) for method in self._delivery_methods()):
+            self._record_send_check('填入前', '目标不支持正文核验')
             return None
         try:
-            handle = open_target(target)
-            before = read(target, handle)
-            return (handle, before) if isinstance(before, str) else None
-        except Exception:
+            capture = getattr(self.backend, 'capture_delivery_snapshot', None)
+            if callable(capture):
+                snapshot = capture(target)
+            else:
+                handle = open_target(target)
+                snapshot = SendSnapshot(handle, read(target, handle))
+            if not isinstance(snapshot, SendSnapshot) or not isinstance(snapshot.before, str):
+                self._record_send_check('填入前', '正文返回类型无效')
+                return None
+            self._record_send_check('填入前', '检测到空框提示，等待填入后逐字核验' if snapshot.empty_hint else '已读取正文', snapshot=snapshot)
+            return snapshot
+        except Exception as error:
+            self._record_send_check('填入前', self._send_read_reason(error))
             return None
 
     def _arm_filled_send(self, target, text, snapshot, epoch):
         if snapshot is None:
             return ''
-        handle, before = snapshot
+        handle, before = snapshot.handle, snapshot.before
         _open, read, _send = self._delivery_methods()
         text = text.replace('\r\n', '\n')
+        after = None
+        attempt = 0
         try:
             for attempt in range(5):
+                with self._lock:
+                    if self._stop.is_set() or epoch != self._sync_epoch or self._selected != target:
+                        self._record_send_check('填入后', '目标或操作已变化', snapshot=snapshot, text=text, attempts=attempt)
+                        return ''
                 after = read(target, handle)
+                verified = False
+                # The hint is not assumed to be an empty body. Only this exact
+                # readback, on the original verified control, accepts that case.
+                empty_match = (snapshot.empty_hint and bool(text) and after != before
+                               and snapshot.paragraph_end in ('', '\n')
+                               and after in (text, text + snapshot.paragraph_end))
+                if empty_match:
+                    verified = True
                 if isinstance(after, str) and len(after) == len(before) + len(text):
                     # 允许填在光标处；移除刚插入的完整文本后必须严格等于旧正文。
                     prefix = 0
@@ -581,16 +662,25 @@ class TargetController:
                     lower = len(before) - suffix
                     start = after.find(text, lower, prefix+len(text)) if lower <= prefix else -1
                     if start >= 0:
-                        token = uuid.uuid4().hex
-                        with self._lock:
-                            if epoch != self._sync_epoch or self._selected != target:
-                                return ''
-                            self._pending_send = (token, epoch, target, handle, after, time.monotonic()+60)
-                        return token
+                        verified = True
+                if verified:
+                    token = uuid.uuid4().hex
+                    with self._lock:
+                        if self._stop.is_set() or epoch != self._sync_epoch or self._selected != target:
+                            self._record_send_check('填入后', '目标或操作已变化', snapshot=snapshot, text=text, after=after, attempts=attempt+1)
+                            return ''
+                        self._pending_send = (token, epoch, target, handle, after, time.monotonic()+60)
+                    reason = '空框提示已消失，完整正文与本次填入一致' if empty_match else '已核对精确插入，保留原有正文'
+                    self._record_send_check('通过', reason, snapshot=snapshot, text=text, after=after, attempts=attempt+1)
+                    return token
                 if attempt < 4:
                     time.sleep(.08)
-        except Exception:
-            pass
+            reason = ('正文返回类型无效' if not isinstance(after, str) else
+                      '填入后仍读到旧值，未确认文字更新' if after == before else
+                      '读回内容与预期插入不符')
+            self._record_send_check('填入后', reason, snapshot=snapshot, text=text, after=after, attempts=attempt+1)
+        except Exception as error:
+            self._record_send_check('填入后', self._send_read_reason(error), snapshot=snapshot, text=text, after=after, attempts=attempt+1)
         return ''
 
     def sync(self, text, callback, send=False):
@@ -720,6 +810,7 @@ class TargetController:
     def _fill(self, callback: Callback | None, text: str, receipt=False, expected_target=None,
               requested_epoch=None, allow_send_confirmation=True) -> None:
         stage = "检查目标选择"
+        self._record_send_check('尚未开始' if receipt and allow_send_confirmation else '未启用', '本次尚无发送确认')
         with self._lock:
             if requested_epoch is not None and requested_epoch != self._sync_epoch:
                 self._record_fill(stage, "未完成")

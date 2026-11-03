@@ -574,8 +574,9 @@ class SettingsPanelMixin:
             except (OSError, ValueError, plistlib.InvalidFileException):
                 version = "无法读取应用版本"
         fill_report = controller.last_fill_report if controller else "尚未尝试填入。"
+        send_report = getattr(controller, 'last_send_report', '尚未核验发送确认。')
         return (f"TALKMAN COLOPLAY 目标窗口诊断\n运行版本：{version}\n运行程序：{executable}"
-                f"\n{fill_report}\n{report}")
+                f"\n{fill_report}\n{send_report}\n{report}")
 
     def _build_target_settings(self, box, win):
         self._settings_description(box, "把文字送到目标", "普通模式只填入；同步模式持续更新输入框，点击「下发」才按回车发送。")
