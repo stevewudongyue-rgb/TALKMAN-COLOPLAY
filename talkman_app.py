@@ -23,6 +23,7 @@ if sys.platform == "win32" and not getattr(sys, "frozen", False):
 from talkman_qwen import QwenClient, QwenError, QwenSettings, TextEdit, load_settings
 from talkman_voice import (VoiceSession, FileVoiceSession, VoicePermissionError,
                            prepare_microphone_permission)
+from talkman_version import FULL_VERSION
 from talkman_asr import ASRSettings, PROVIDERS, load_asr_settings, transcriber, validate
 from talkman_assets import load_fonts, load_icons
 from talkman_shortcuts import (DEFAULT_SHORTCUTS, ShortcutError, load_shortcuts, display_shortcut,
@@ -247,6 +248,8 @@ class TalkManApp(TranslationUIMixin, DeliveryUIMixin, ConventionsUIMixin, AIEdit
         self.operation_id = 0
         self.busy = False
         self.voice = None
+        self.last_voice_diagnostic = "尚无录音诊断，请先进行一次录音。"
+        self.voice_audio_level = "等待麦克风数据"
         self.voice_from_device = False
         self.voice_mode = None
         self.voice_base = ""
@@ -1654,6 +1657,9 @@ class TalkManApp(TranslationUIMixin, DeliveryUIMixin, ConventionsUIMixin, AIEdit
     def start_voice(self,mode, *, from_device=False):
         if self.busy or self.closing or self.ai_review is not None or self.convention_panel is not None:
             return False
+        if getattr(self, '_mic_reset_pending', False) or getattr(self, '_mic_permission_reset_required', False):
+            self.status_var.set("麦克风授权正在重置或已重置，请完全退出程序后重新打开，再点击录音授权。")
+            return False
         if hasattr(self, 'coloplay') and (self.coloplay.active or self.window_controller.edge):
             self.window_controller.begin_device_edit()
         if self._mic_permission_pending:
@@ -1722,6 +1728,11 @@ class TalkManApp(TranslationUIMixin, DeliveryUIMixin, ConventionsUIMixin, AIEdit
         self.voice_from_device=from_device
         self.operation_id += 1
         self.voice_ready_token = None
+        self.voice_audio_level = "等待麦克风数据"
+        self.last_voice_diagnostic = "本轮录音尚未结束。"
+        self.voice_diagnostic_header = (f"TALKMAN COLOPLAY 录音诊断\n运行版本：{FULL_VERSION}\n"
+                                        f"开始时间：{datetime.now():%Y-%m-%d %H:%M:%S}\n识别服务：{spec.label}\n"
+                                        f"识别方式：{'实时转写' if provider == 'qwen' and self.settings.voice_mode != 'file' else '录后识别'}\n")
         token=self.operation_id
         self.set_busy(True)
         self.emphasize_voice_range(self.voice_start, self.voice_end)
@@ -1907,7 +1918,13 @@ class TalkManApp(TranslationUIMixin, DeliveryUIMixin, ConventionsUIMixin, AIEdit
             elif kind == "voice" and token==self.operation_id and self.busy:
                 if state=="ready" and not self.voice_stopping:
                     self.voice_ready_token = token
-                    self.status_var.set(f"正在录音 · {PROVIDERS['free' if self.free_mode_var.get() else self.asr_settings.provider].label} · 单轮 {self.voice_limit} 秒")
+                    self.status_var.set(f"正在录音 · {self.voice_audio_level} · 单轮 {self.voice_limit} 秒")
+                elif state == "audio" and not self.voice_stopping:
+                    self.voice_audio_level = value
+                    if self.voice_ready_token == token:
+                        self.status_var.set(f"正在录音 · {value} · 单轮 {self.voice_limit} 秒")
+                elif state == "diagnostic":
+                    self.last_voice_diagnostic = self.voice_diagnostic_header + value
                 elif state in ("partial","final"):
                     self.show_voice_text(value)
                 elif state=="done":

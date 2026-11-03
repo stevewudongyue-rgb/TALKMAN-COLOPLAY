@@ -12,7 +12,9 @@ neither. Only ``done`` text is safe to commit to the document.
 from __future__ import annotations
 
 import json
+from array import array
 import io
+import math
 import queue
 import sys
 import threading
@@ -203,6 +205,13 @@ class VoiceSession:
         self._audio: queue.Queue[bytes] = queue.Queue(MAX_QUEUED_BLOCKS)
         self._audio_problem: str | None = None
         self._frames = 0
+        self._peak = 0
+        self._last_peak = 0
+        self._last_capture = 0.0
+        self._last_meter = 0.0
+        self._device_label = "系统默认输入"
+        self._permission = None
+        self._phase = "准备录音"
         self._stop_reason = ""
         self._worker: threading.Thread | None = None
         self._transcript = _Transcript()
@@ -247,6 +256,44 @@ class VoiceSession:
         if self._cancel.is_set():
             raise _Cancelled()
 
+    def _report_audio(self) -> None:
+        # Only the worker publishes UI events, at most four times a second.
+        now = time.monotonic()
+        if self._stop.is_set() or now - self._last_meter < 0.25:
+            return
+        self._last_meter = now
+        if not self._frames:
+            level = "等待麦克风数据"
+        elif now - self._last_capture > 1.0:
+            level = "麦克风数据已停滞"
+        elif not self._last_peak:
+            level = "暂无声音"
+        else:
+            level = f"输入电平 {20 * math.log10(self._last_peak / 32768):.0f} dB"
+        self._emit("audio", level)
+
+    def _validate_recording(self) -> None:
+        if not self._frames:
+            raise _VoiceError("没有录到音频：麦克风未返回数据。请检查系统输入设备，并退出后重新打开程序。")
+        if not self._peak:
+            suffix = ("请检查「系统设置 → 声音 → 输入」的设备及输入音量；若仍无声，可在「设置 → Mac 授权」重置本应用麦克风授权。"
+                      if sys.platform == "darwin" else "请检查系统输入设备、静音开关及输入音量。")
+            raise _VoiceError("已收到音频，但本轮全部为静音。" + suffix)
+
+    def _empty_result_error(self) -> str:
+        self._validate_recording()
+        return "已收到麦克风音频，但识别服务没有识别到语音。请查看「设置 → 语音 → 复制录音诊断」，核对输入电平和识别服务。"
+
+    def _report_diagnostic(self, outcome: str) -> None:
+        # No audio, transcript, credentials or service response is retained here.
+        permission = {0: "等待首次授权", 1: "系统限制", 2: "未允许", 3: "已允许"}.get(
+            self._permission, "未知" if sys.platform == "darwin" else "由系统管理")
+        peak = f"{20 * math.log10(self._peak / 32768):.1f} dBFS" if self._peak else "静音（全零）"
+        self._emit("diagnostic", f"输入设备：{self._device_label}\n麦克风权限：{permission}\n"
+                   f"音频格式：16000 Hz／单声道／PCM16\n收到帧数：{self._frames}（{self._frames / SAMPLE_RATE:.2f} 秒）\n"
+                   f"峰值：{peak}\n结束阶段：{self._phase}\n结果：{'完成' if outcome == 'done' else '未完成'}\n"
+                   f"停止原因：{ {'user': '用户结束', 'limit': '时长上限'}.get(self._stop_reason, '程序结束') }")
+
     def _capture(self, indata, frames: int, _timing, status) -> None:
         if self._stop.is_set() or self._cancel.is_set():
             return
@@ -257,8 +304,17 @@ class VoiceSession:
         remaining = max(0, int(self.max_record_seconds * SAMPLE_RATE) - self._frames)
         count = min(frames, remaining)
         if count:
+            data = bytes(indata)[:count * 2]
+            if len(data) != count * 2:
+                self._audio_problem = "麦克风返回的音频长度异常，请重新打开程序后重试。"
+                self._stop.set()
+                return
+            samples = array('h', data)
+            self._last_peak = max(abs(min(samples)), abs(max(samples)))
+            self._peak = max(self._peak, self._last_peak)
+            self._last_capture = time.monotonic()
             try:
-                self._audio.put_nowait(bytes(indata)[:count * 2])
+                self._audio.put_nowait(data)
             except queue.Full:
                 self._audio_problem = "网络发送速度跟不上录音，音频缓冲已满。本轮已停止，请检查网络后重试。"
                 self._stop.set()
@@ -270,16 +326,20 @@ class VoiceSession:
 
     def _open_microphone(self, sounddevice):
         stream = None
+        self._phase = "打开麦克风"
         try:
             settings = {}
             if sys.platform == "darwin":
-                _check_mac_microphone_permission()
+                self._permission = _mac_microphone_permission()
+                if self._permission in (1, 2):
+                    raise _VoiceError(MAC_MICROPHONE_DENIED)
                 try:
                     device = sounddevice.query_devices(kind="input")
                 except Exception:
                     raise _VoiceError("Mac 没有可用的默认麦克风：请在「系统设置 → 声音 → 输入」选择设备后重试。") from None
                 if device.get("max_input_channels", 0) < 1:
                     raise _VoiceError("Mac 默认设备没有录音通道：请在「系统设置 → 声音 → 输入」选择麦克风。")
+                self._device_label = ' '.join(str(device.get('name', '系统默认输入')).split())[:120]
                 # Core Audio performs high-quality conversion from the device's
                 # native rate, keeping the ASR wire format at 16 kHz.
                 settings["device"] = device["index"]
@@ -292,7 +352,9 @@ class VoiceSession:
                 blocksize=BLOCK_FRAMES, callback=self._capture, **settings,
             )
             stream.start()
-            _check_mac_microphone_permission()
+            self._permission = _mac_microphone_permission()
+            if self._permission in (1, 2):
+                raise _VoiceError(MAC_MICROPHONE_DENIED)
             self._check_cancel()
             if self._stop.is_set() and not self._frames:
                 raise _VoiceError("没有录到音频，请在允许麦克风后重新按住录音，说话后再松开。" if sys.platform == "darwin"
@@ -435,14 +497,15 @@ class VoiceSession:
             if not self._stop.is_set():
                 stream = self._open_microphone(sounddevice)
             recording_started = time.monotonic()
+            self._phase = "连接识别服务"
 
             def stop_microphone() -> None:
                 nonlocal stream
+                self._report_audio()
                 if self._stop.is_set() and stream is not None:
                     self._dispose_stream(stream)
                     stream = None
-                    if not self._frames:
-                        raise _VoiceError("没有录到音频，请按住语音按钮说话后再松开。")
+                    self._validate_recording()
 
             connection = self._connect(websocket, stop_microphone)
             self._check_cancel()
@@ -481,6 +544,7 @@ class VoiceSession:
                             break
                         connection.send_binary(audio)
                     if self._stop.is_set() and self._audio.empty():
+                        self._phase = "等待识别结果"
                         connection.send(json.dumps({
                             "header": {"action": "finish-task", "task_id": task_id, "streaming": "duplex"},
                             "payload": {"input": {}},
@@ -489,6 +553,7 @@ class VoiceSession:
                 event = self._receive(connection, websocket, task_id)
                 if event == "task-started" and not task_started:
                     task_started = True
+                    self._phase = "录音与实时识别"
                     self._emit("ready", "正在聆听" if not self._stop.is_set() else "正在完成识别")
                 elif event == "task-finished":
                     if finish_deadline is None:
@@ -497,7 +562,7 @@ class VoiceSession:
                         raise _VoiceError("语音服务未确认完整的最终结果，本轮未提交，请重试。")
                     text = self._transcript.final_text.strip()
                     if not text:
-                        raise _VoiceError("没有识别到语音，请检查麦克风并靠近麦克风说话后重试。")
+                        raise _VoiceError(self._empty_result_error())
                     terminal = ("done", text)
                     break
         except _Cancelled:
@@ -518,6 +583,7 @@ class VoiceSession:
                     break
             self._finished.set()
             if terminal:
+                self._report_diagnostic(terminal[0])
                 self._emit(*terminal)
 
 
@@ -591,9 +657,11 @@ class FileVoiceSession(VoiceSession):
             if not self._stop.is_set():
                 stream = self._open_microphone(sounddevice)
             self._emit("ready", "正在聆听" if not self._stop.is_set() else "正在完成识别")
+            self._phase = "录音"
             recording_started = time.monotonic()
             while True:
                 self._check_cancel()
+                self._report_audio()
                 if self._audio_problem:
                     raise _VoiceError(self._audio_problem)
                 if not self._stop.is_set() and time.monotonic() - recording_started >= self.max_record_seconds:
@@ -612,8 +680,7 @@ class FileVoiceSession(VoiceSession):
             self._dispose_stream(stream)
             stream = None
             self._check_cancel()
-            if not recording:
-                raise _VoiceError("没有录到音频，请按住语音按钮说话后再松开。")
+            self._validate_recording()
             buffer = io.BytesIO()
             with wave.open(buffer, "wb") as output:
                 output.setnchannels(1)
@@ -621,10 +688,11 @@ class FileVoiceSession(VoiceSession):
                 output.setframerate(SAMPLE_RATE)
                 output.writeframes(recording)
             recording.clear()
+            self._phase = "等待识别结果"
             text = self._transcribe_wav(buffer.getvalue())
             buffer.close()
             if not text:
-                raise _VoiceError("没有识别到语音，请检查麦克风并靠近麦克风说话后重试。")
+                raise _VoiceError(self._empty_result_error())
             terminal = ("done", text)
         except _Cancelled:
             pass
@@ -644,4 +712,5 @@ class FileVoiceSession(VoiceSession):
                     break
             self._finished.set()
             if terminal:
+                self._report_diagnostic(terminal[0])
                 self._emit(*terminal)

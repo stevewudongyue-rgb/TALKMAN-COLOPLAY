@@ -1,9 +1,10 @@
-"""Mac 权限自检和设置入口；不录音、不自动批准、不修改 TCC 数据库。"""
+"""Mac 权限自检和设置入口；仅在用户确认后通过系统工具重置本应用麦克风授权。"""
 from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
 import platform
+import plistlib
 import subprocess
 import sys
 
@@ -16,6 +17,28 @@ SETTINGS_URLS = {
     "local_network": "x-apple.systempreferences:com.apple.preference.security?Privacy_LocalNetwork",
 }
 MICROPHONE_LABELS = {0: "等待首次授权", 1: "受到系统或公司策略限制", 2: "未允许", 3: "已允许"}
+COLOPLAY_BUNDLE_ID = "com.cololight.talkman.coloplay"
+
+
+def reset_microphone_permission() -> str:
+    """Called only by the explicit reset button, never by startup or updater."""
+    if sys.platform != "darwin":
+        raise RuntimeError("此入口仅用于 Mac。")
+    app = running_app_path()
+    try:
+        identity = plistlib.loads((app / "Contents" / "Info.plist").read_bytes()) if app else {}
+    except (OSError, ValueError, plistlib.InvalidFileException):
+        identity = {}
+    if not isinstance(identity, dict) or identity.get("CFBundleIdentifier") != COLOPLAY_BUNDLE_ID:
+        raise RuntimeError("无法确认当前应用身份，请从“应用程序”打开 TALKMAN COLOPLAY 后重试。")
+    try:
+        result = subprocess.run(["/usr/bin/tccutil", "reset", "Microphone", COLOPLAY_BUNDLE_ID],
+                                capture_output=True, timeout=8, check=False)
+    except (OSError, subprocess.TimeoutExpired):
+        raise RuntimeError("系统未能完成麦克风授权重置，请退出后重新打开程序再检查。") from None
+    if result.returncode != 0:
+        raise RuntimeError("系统拒绝了麦克风授权重置，请检查系统权限或公司管理策略。")
+    return "已重置本应用麦克风授权。请完全退出程序，再从“应用程序”打开，点击录音并允许麦克风；本地设置和 Key 保留。"
 
 
 def settings_path(kind: str, version: str | None = None) -> str:

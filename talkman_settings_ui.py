@@ -13,7 +13,7 @@ from tkinter import ttk
 from talkman_asr import (ASRSettings, PROVIDERS, asr_keys_remembered, load_asr_settings,
                          save_asr_settings, validate)
 from talkman_credentials import secure_storage_supported
-from talkman_macos_setup import check_permissions, open_permission_settings
+from talkman_macos_setup import check_permissions, open_permission_settings, reset_microphone_permission
 from talkman_voice import prepare_microphone_permission, VoicePermissionError
 from talkman_qwen import QwenError, QwenSettings, load_settings, qwen_key_remembered, save_settings
 from talkman_shortcuts import (
@@ -419,6 +419,9 @@ class SettingsPanelMixin:
             feedback.set(open_permission_settings(kind))
 
         def allow_microphone():
+            if getattr(self, '_mic_reset_pending', False) or getattr(self, '_mic_permission_reset_required', False):
+                feedback.set("请完全退出并重新打开程序后，再点击录音申请麦克风权限。")
+                return
             if pending[0] or self.busy or self._mic_permission_pending:
                 feedback.set("请先结束当前操作，或完成已打开的麦克风授权。")
                 return
@@ -461,6 +464,44 @@ class SettingsPanelMixin:
             self.button(row, "麦克风设置" if kind == "microphone" else "辅助功能设置",
                         lambda kind=kind: open_page(kind)).pack(side="left")
 
+        self._settings_heading(box, "升级后录音无声")
+        ttk.Label(box, text="先检查系统声音设置的输入设备和音量。若已允许仍无声，可重置本应用的麦克风授权；之后需完全退出并重开，再允许录音。",
+                  style="Muted.TLabel", wraplength=585).pack(anchor="w", pady=(0, 8))
+        armed = [False]
+
+        def reset_microphone():
+            if self.busy or self._mic_permission_pending or getattr(self, '_mic_reset_pending', False):
+                feedback.set("请先结束当前操作或完成系统权限请求。")
+                return
+            if getattr(self, '_mic_permission_reset_required', False):
+                feedback.set("已重置，请完全退出程序并从“应用程序”重新打开。")
+                return
+            if not armed[0]:
+                armed[0] = True
+                reset_button.configure(text="确认重置（需退出重开）")
+                feedback.set("只重置 TALKMAN COLOPLAY 的麦克风授权；不改辅助功能、Key 或正文。再次点击确认。")
+                return
+            self._mic_reset_pending = True
+            reset_button.state(['disabled'])
+
+            def completed(state, value):
+                self._mic_reset_pending = False
+                if state == 'ok':
+                    self._mic_permission_reset_required = True
+                self.status_var.set(value)
+                if win.winfo_exists():
+                    reset_button.state(['!disabled'])
+                    feedback.set(value)
+            def work():
+                try:
+                    return reset_microphone_permission()
+                except RuntimeError as error:
+                    raise QwenError(str(error)) from None
+            self.run_worker('check', completed, work)
+
+        reset_button = self.button(box, "重置本应用麦克风授权", reset_microphone, style="Ghost.TButton")
+        reset_button.pack(anchor="w", pady=(0, 16))
+        self.mac_setup_reset_button = reset_button
         ttk.Label(box, text="辅助功能列表中没有 TalkMan？点“＋”添加正在运行的应用。若仍未生效，退出后从“应用程序”重新打开。",
                   style="Muted.TLabel", wraplength=585).pack(anchor="w")
 
@@ -718,6 +759,12 @@ class SettingsPanelMixin:
         ttk.Label(box, textvariable=note, wraplength=585, style="Muted.TLabel").pack(anchor="w", pady=(4, 18))
         feedback = tk.StringVar()
         actions = self._settings_footer(box, win, feedback)
+        def copy_voice_diagnostic():
+            self.clipboard_clear()
+            self.clipboard_append(self.last_voice_diagnostic)
+            feedback.set("已复制本次运行的最近一轮诊断；不含音频、正文或 Key。")
+        self.voice_diagnostic_button = self.button(box, "复制录音诊断", copy_voice_diagnostic, style="Ghost.TButton")
+        self.voice_diagnostic_button.pack(anchor="w", pady=(0, 12))
         fields = ttk.Frame(box)
         fields.pack(fill="x")
         profiles = {name: self.asr_settings.credentials(name) for name in PROVIDERS}

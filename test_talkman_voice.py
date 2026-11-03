@@ -74,8 +74,9 @@ class FakeSocket:
 
 
 class FakeAudio:
-    def __init__(self, count=1, fail=False):
+    def __init__(self, count=1, fail=False, sample=b"\x01\x00"):
         self.count = count
+        self.sample = sample
         self.fail = fail
         self.opened = threading.Event()
         self.closed = threading.Event()
@@ -97,7 +98,7 @@ class FakeAudio:
                 if owner.fail:
                     raise RuntimeError("device failure")
                 for _ in range(owner.count):
-                    kwargs["callback"](b"\x01\x00" * 1600, 1600, None, False)
+                    kwargs["callback"](owner.sample * 1600, 1600, None, False)
 
             def abort(self):
                 owner.closed.set()
@@ -135,6 +136,32 @@ class FakeMacAudio(FakeAudio):
                 raise self.start_error
             stream.start = fail
         return stream
+
+
+class AudioMeterTests(unittest.TestCase):
+    def test_meter_is_throttled_and_stops_after_cancel(self):
+        events = []
+        session = voice.VoiceSession('private-key', 'model', lambda *event: events.append(event))
+        with patch.object(voice.time, 'monotonic', return_value=10) as clock:
+            session._capture(b'\x00\x00' * 1600, 1600, None, False)
+            for _ in range(100):
+                session._report_audio()
+            self.assertEqual(events, [('audio', '暂无声音')])
+            clock.return_value = 10.3
+            session._capture(b'\x00\x40' * 1600, 1600, None, False)
+            session._report_audio()
+            self.assertEqual(events[-1], ('audio', '输入电平 -6 dB'))
+            clock.return_value = 12
+            session._report_audio()
+            self.assertIn('停滞', events[-1][1])
+            before = list(events)
+            frames = session._frames
+            session.cancel()
+            session._capture(b'\x01\x00' * 1600, 1600, None, False)
+            session._report_audio()
+            session._report_diagnostic('error')
+            self.assertEqual(session._frames, frames)
+            self.assertEqual(events, before)
 
 
 class TranscriptTests(unittest.TestCase):
@@ -246,7 +273,7 @@ class SessionTests(_SessionFixture):
             session.cancel()
             self.done(session)
             self.assertTrue(audio.closed.is_set())
-            self.assertEqual(events, [])
+            self.assertFalse(any(kind != 'audio' for kind, _ in events))
             gate.set()
             self.assertTrue(socket.closed.wait(0.5))
         finally:
@@ -272,6 +299,34 @@ class SessionTests(_SessionFixture):
         self.done(session)
         self.assertEqual(events[-1][0], "error")
         self.assertIn("没有识别到语音", events[-1][1])
+        self.assertIn("已收到麦克风音频", events[-1][1])
+
+    def test_streaming_distinguishes_no_callbacks_and_silent_audio(self):
+        for audio, expected in ((FakeAudio(count=0), "未返回数据"),
+                                (FakeAudio(sample=b'\x00\x00'), "全部为静音")):
+            session, socket, _, events, _ = self.make(audio=audio)
+            session.start()
+            self.wait(lambda: any(kind == 'ready' for kind, _ in events))
+            session.stop()
+            self.done(session)
+            self.assertEqual(events[-1][0], 'error')
+            self.assertIn(expected, events[-1][1])
+            self.assertFalse(any(isinstance(item, dict) and item['header']['action'] == 'finish-task'
+                                 for item in socket.sent))
+            self.assertEqual(events[-2][0], 'diagnostic')
+
+    def test_diagnostic_has_signal_and_phase_but_no_key_or_transcript(self):
+        session, _, _, events, _ = self.make()
+        session.start()
+        self.wait(lambda: any(kind == 'ready' for kind, _ in events))
+        session.stop()
+        self.done(session)
+        diagnostic = next(text for kind, text in events if kind == 'diagnostic')
+        self.assertIn('1600（0.10 秒）', diagnostic)
+        self.assertIn('-90.3 dBFS', diagnostic)  # Quiet valid input is not rejected.
+        self.assertIn('等待识别结果', diagnostic)
+        self.assertNotIn('测试。', diagnostic)
+        self.assertNotIn('fake-offline-key', diagnostic)
 
     def test_unconfirmed_tail_is_not_committed(self):
         session, _, _, events, _ = self.make(FakeSocket([sentence(1, "确认。", True), sentence(2, "未确认")]))
@@ -609,6 +664,28 @@ class FileSessionTests(_SessionFixture):
             self.assertEqual((wav.getframerate(), wav.getnchannels(), wav.getsampwidth()), (16000, 1, 2))
             self.assertEqual(wav.getnframes(), 1600)
             self.assertEqual(wav.readframes(1600), b"\x01\x00" * 1600)
+
+    def test_file_zero_or_missing_audio_is_not_uploaded(self):
+        for audio, expected in ((FakeAudio(count=0), '未返回数据'),
+                                (FakeAudio(sample=b'\x00\x00'), '全部为静音')):
+            session, _, events, requests = self.make_file(audio=audio)
+            session.start()
+            self.wait(lambda: any(kind == 'ready' for kind, _ in events))
+            session.stop()
+            self.done(session)
+            self.assertIn(expected, events[-1][1])
+            self.assertEqual(requests, [])
+            self.assertEqual(events[-2][0], 'diagnostic')
+
+    def test_negative_full_scale_audio_is_valid(self):
+        session, _, events, requests = self.make_file(audio=FakeAudio(sample=b'\x00\x80'))
+        session.start()
+        self.wait(lambda: any(kind == 'ready' for kind, _ in events))
+        session.stop()
+        self.done(session)
+        self.assertEqual(events[-1][0], 'done')
+        self.assertEqual(len(requests), 1)
+        self.assertIn('0.0 dBFS', events[-2][1])
 
     def test_file_mac_uses_same_device_check_and_16k_wav(self):
         self.patch("talkman_voice.sys.platform", "darwin")

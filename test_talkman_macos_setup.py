@@ -1,5 +1,6 @@
 """Mac 授权入口和分发流程的离线保护；不请求真实系统权限。"""
 import ast
+import plistlib
 from contextlib import nullcontext
 import importlib.util
 import tempfile
@@ -18,6 +19,50 @@ spec.loader.exec_module(build)
 
 
 class MacSetupTests(unittest.TestCase):
+    def test_reset_only_targets_current_coloplay_microphone(self):
+        with tempfile.TemporaryDirectory(prefix='TalkMan-permission-') as folder:
+            app = Path(folder) / 'TALKMAN COLOPLAY.app'
+            (app / 'Contents').mkdir(parents=True)
+            info = app / 'Contents/Info.plist'
+            info.write_bytes(plistlib.dumps({'CFBundleIdentifier': setup.COLOPLAY_BUNDLE_ID}))
+            with patch.object(setup.sys, 'platform', 'darwin'), \
+                    patch.object(setup, 'running_app_path', return_value=app), \
+                    patch.object(setup.subprocess, 'run', return_value=SimpleNamespace(returncode=0)) as run:
+                self.assertIn('完全退出', setup.reset_microphone_permission())
+                self.assertEqual(run.call_args.args[0], ['/usr/bin/tccutil', 'reset', 'Microphone',
+                                                        'com.cololight.talkman.coloplay'])
+                info.write_bytes(plistlib.dumps({'CFBundleIdentifier': 'com.example.other'}))
+                run.reset_mock()
+                with self.assertRaisesRegex(RuntimeError, '身份'):
+                    setup.reset_microphone_permission()
+                run.assert_not_called()
+                info.write_bytes(b'invalid')
+                with self.assertRaisesRegex(RuntimeError, '身份'):
+                    setup.reset_microphone_permission()
+                run.assert_not_called()
+
+    def test_reset_failure_never_leaks_process_output(self):
+        with patch.object(setup.sys, 'platform', 'darwin'), \
+                patch.object(setup, 'running_app_path', return_value=Path('TalkMan.app')), \
+                patch.object(Path, 'read_bytes', return_value=plistlib.dumps(
+                    {'CFBundleIdentifier': setup.COLOPLAY_BUNDLE_ID})), \
+                patch.object(setup.subprocess, 'run', return_value=SimpleNamespace(returncode=1, stderr='private')):
+            with self.assertRaisesRegex(RuntimeError, '系统拒绝') as error:
+                setup.reset_microphone_permission()
+            self.assertNotIn('private', str(error.exception))
+
+    def test_source_or_windows_cannot_reset(self):
+        with patch.object(setup.sys, 'platform', 'darwin'), \
+                patch.object(setup, 'running_app_path', return_value=None), \
+                patch.object(setup.subprocess, 'run') as run:
+            with self.assertRaises(RuntimeError):
+                setup.reset_microphone_permission()
+            run.assert_not_called()
+        with patch.object(setup.sys, 'platform', 'win32'), patch.object(setup.subprocess, 'run') as run:
+            with self.assertRaises(RuntimeError):
+                setup.reset_microphone_permission()
+            run.assert_not_called()
+
     def test_paths_adapt_to_preference_and_settings_generations(self):
         self.assertIn("系统偏好设置", setup.settings_path("microphone", "12.7"))
         for version in ("14.8", "15.7", "26.1", "27.0", "未知"):

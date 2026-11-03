@@ -100,6 +100,61 @@ class EditorTests(unittest.TestCase):
             finally:
                 scaled.close_app()
 
+    def test_audio_status_and_diagnostic_survive_failed_recording(self):
+        self.app.render_text('原文保留', 4)
+        self.assertTrue(self.app.start_voice('insert'))
+        session = FakeVoice.sessions[-1]
+        session.emit('ready', '')
+        session.emit('audio', '暂无声音')
+        self.pump()
+        self.assertIn('暂无声音', self.app.status_var.get())
+        session.emit('diagnostic', '收到帧数：1600\n峰值：静音（全零）')
+        session.emit('error', '已收到音频，但本轮全部为静音。')
+        self.pump()
+        self.assertEqual(self.app.current_text(), '原文保留')
+        self.assertIn('原文已保留', self.app.status_var.get())
+        self.assertIn('识别服务：', self.app.last_voice_diagnostic)
+        self.assertIn('静音', self.app.last_voice_diagnostic)
+        self.assertNotIn('sk-test', self.app.last_voice_diagnostic)
+        self.app.open_asr_settings()
+        with patch.object(self.app, 'clipboard_clear'), patch.object(self.app, 'clipboard_append') as copy:
+            self.app.voice_diagnostic_button.invoke()
+        copy.assert_called_once_with(self.app.last_voice_diagnostic)
+        # Late events from a finished session cannot replace error feedback.
+        session.emit('audio', '输入电平 -6 dB')
+        self.pump()
+        self.assertNotIn('正在录音', self.app.status_var.get())
+
+    def test_microphone_reset_requires_explicit_confirmation_and_restart(self):
+        from talkman_macos_setup import MacSetupStatus
+        from tkinter import ttk
+        win = tk.Toplevel(self.app)
+        win.withdraw()
+        box = ttk.Frame(win)
+        box.pack()
+        with patch('talkman_settings_ui.check_permissions', return_value=MacSetupStatus('15', 3, True, None)), \
+                patch('talkman_settings_ui.reset_microphone_permission', return_value='已重置，请完全退出并重新打开。') as reset:
+            self.app._build_mac_setup(box, win)
+            reset.assert_not_called()
+            button = self.app.mac_setup_reset_button
+            button.invoke()
+            reset.assert_not_called()
+            self.assertIn('确认重置', button.cget('text'))
+            # Run work deterministically; its result still goes through the UI queue.
+            def worker(kind, token, work):
+                self.app.events.put((kind, token, 'ok', work()))
+            with patch.object(self.app, 'run_worker', side_effect=worker):
+                button.invoke()
+            self.assertTrue(self.app._mic_reset_pending)
+            win.destroy()  # Closing settings must not lose the pending state/result.
+            self.pump()
+            reset.assert_called_once_with()
+        self.assertFalse(self.app._mic_reset_pending)
+        self.assertTrue(self.app._mic_permission_reset_required)
+        self.assertFalse(self.app.start_voice('replace'))
+        self.assertEqual(FakeVoice.sessions, [])
+        self.assertIn('重新打开', self.app.status_var.get())
+
     def test_window_and_scale_preferences_are_saved_together(self):
         with patch.object(self.app, 'save_ui_preferences', wraps=self.app.save_ui_preferences) as save:
             self.app.save_window_preferences(ui_scale=1.5)
