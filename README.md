@@ -6,22 +6,23 @@
 
 ## 下载
 
-**Mac 测试版 0.1.28.50 · 2026-11-02**（Windows 保持 0.1.28.47）
+**Windows / Mac 测试版 0.1.28.52 · 2026-11-03**
 
-本版修复 Mac 小屏已高亮豆包／ZCode，但松开右下无法选定的问题。松手直接确认预选目标，桌面显示“已选目标”；真正填入时再聚焦并校验窗口和输入框。保留上一版豆包／Perplexity 的识别修复，实体旋钮及真实 Agent 填入仍需实测。
+本版在设置底部增加「一键升级」：检查、下载并校验新包，保存正文后退出，完成覆盖安装并重新打开。修复 Mac 主窗口置顶时设置窗口被遮挡的问题；打开设置期间暂时解除主窗口置顶，关闭后恢复。Mac 的「界面文字」移到「设置 → 窗口与显示」；选“最大”后保存，完全退出并重新打开才生效。
 
 | 安装文件 | 适用设备 |
 |---|---|
-| [Windows 安装器](https://github.com/stevewudongyue-rgb/TALKMAN-COLOPLAY/releases/download/coloplay-v0.1.28.47/TalkMan-COLOPLAY-0.1.28.47-Windows-x64-Setup.exe) | Windows 10／11 x64 |
-| [Mac 安装镜像 DMG](https://github.com/stevewudongyue-rgb/TALKMAN-COLOPLAY/releases/download/coloplay-v0.1.28.50/TalkMan-COLOPLAY-0.1.28.50-Mac-AppleSilicon.dmg) | Apple 芯片 M1 及以后，macOS 14 及以上 |
-| [Windows 便携版](https://github.com/stevewudongyue-rgb/TALKMAN-COLOPLAY/releases/download/coloplay-v0.1.28.47/TalkMan-COLOPLAY-0.1.28.47-Windows-x64-Portable.zip) | 完整解压运行，保留 `_internal` 文件夹 |
-| [Windows 校验值](https://github.com/stevewudongyue-rgb/TALKMAN-COLOPLAY/releases/download/coloplay-v0.1.28.47/TalkMan-SHA256SUMS.txt) | SHA-256 |
+| [Windows 安装器](https://github.com/stevewudongyue-rgb/TALKMAN-COLOPLAY/releases/download/coloplay-v0.1.28.52/TalkMan-COLOPLAY-0.1.28.52-Windows-x64-Setup.exe) | Windows 10／11 x64 |
+| [Mac 安装镜像 DMG](https://github.com/stevewudongyue-rgb/TALKMAN-COLOPLAY/releases/download/coloplay-v0.1.28.52/TalkMan-COLOPLAY-0.1.28.52-Mac-AppleSilicon.dmg) | Apple 芯片 M1 及以后，macOS 14 及以上 |
+| Windows 便携版 | 此版不支持应用内升级，请使用安装器 |
+| [安装包校验值](https://github.com/stevewudongyue-rgb/TALKMAN-COLOPLAY/releases/download/coloplay-v0.1.28.52/TalkMan-SHA256SUMS.txt) | SHA-256 |
 
-[Mac 本版发布说明及校验值](https://github.com/stevewudongyue-rgb/TALKMAN-COLOPLAY/releases/tag/coloplay-v0.1.28.50) · [Windows 发布说明](https://github.com/stevewudongyue-rgb/TALKMAN-COLOPLAY/releases/tag/coloplay-v0.1.28.47)
+[本版发布说明](https://github.com/stevewudongyue-rgb/TALKMAN-COLOPLAY/releases/tag/coloplay-v0.1.28.52)
 
 ## 开始使用
 
 1. Windows 运行安装器；Mac 打开 DMG，把 **TALKMAN COLOPLAY.app 拖到 Applications**，再从“应用程序”打开。均无需 Python。
+   已安装的旧版需要先手动升级到 .52；以后可在 **设置底部 → 一键升级** 检查并安装新版。
 2. 新安装默认使用**免费语音识别与星辰文字改写**，无需 API Key。点击“录音和覆盖”开始，再点停止；选中文字时覆盖选区。
 3. “指令修改”按口述要求修改文字；AI 改写可先检查再确认。
 4. 选择目标 Agent，先填入输入框，核对后再发送。
@@ -40,7 +41,7 @@ Mac 首次连接设备允许“本地网络”，录音允许麦克风，填入 
 - 辅助功能用于填入其他应用；只编辑或复制文字可以跳过。设备不在手边也能先使用桌面程序。
 - “稍后继续”保留步骤。在 **设置 → 新手引导** 继续，最后可查看四键与旋钮图解，再进入正文试录。
 
-此版只更新 Mac 客户端，**沿用 .47 配对卡带，无需再更新 ROM**。第一次仍须从 DMG 拖入“应用程序”；若系统阻止测试版，按下方说明放行。首次新电脑配对仍需安装对应卡带，引导不绕过系统授权，也不把源码导出当作已安装。
+此版**沿用 .47 配对卡带，无需再更新 ROM**。首次新电脑配对仍需安装对应卡带，引导不绕过系统授权，也不把源码导出当作已安装。
 
 ## 设备操作
 
@@ -81,10 +82,10 @@ Mac 选目标时保持 TalkMan 当前界面，松开右下后检查桌面“已�
 
 沿用 .46 的 Wi-Fi 心跳恢复修复及断线日志。纯 USB 图流另需设备固件支持 airimg。免费模型服务与设备连接相互独立。
 
-退出旧程序后覆盖安装即可，已保存的 Key、历史、快捷键与设备配置保留。Windows 数据存于 `%LOCALAPPDATA%\TalkMan-COLOPLAY`；Mac 使用独立用户目录和钥匙串。
+应用内升级只替换程序，不迁移或删除用户数据。Windows 设置与草稿在 `%LOCALAPPDATA%\TalkMan-COLOPLAY`，Mac 在 `~/Library/Application Support/TalkMan-COLOPLAY`，Mac Key 存系统钥匙串。测试版未使用 Developer ID 签名，新版首次访问钥匙串、麦克风或辅助功能时，macOS 仍可能要求重新授权；数据并未因此清空。
 
 ## 验证范围
 
-Windows 两次覆盖安装、测试 Key／历史／配对保留与成品检查通过。Mac 0.1.28.50 在 Apple 芯片环境通过 321 项回归（无跳过）、成品启动、签名完整性及 DMG 挂载检查。新增模拟完整旋钮预选与松手确认，覆盖豆包／ZCode 交替选择。官方完整卡带模拟器用同一 ROM 在两个电脑地址间断线后自动重连，每个地址持续约 15 秒、各 17 次心跳。
+Windows .52 构建与 43 项相关回归通过；本机旧程序仍在运行，静默覆盖安装尚未实测。Mac .52 在 Apple 芯片 CI 通过回归、置顶主窗口打开设置测试、DMG 签名及挂载检查、新包暂存与退出后替换测试；未在用户 Mac 的真实钥匙串和辅助功能授权状态下验收。旧版覆盖安装保留数据的隔离验证见 .47 记录。
 
 公司局域网与实体 COLOPLAY 的换网、长时间连接仍待实测；上述模拟器结果不代表真机已验收。真实麦克风与 Agent 操作需在目标电脑测试。
