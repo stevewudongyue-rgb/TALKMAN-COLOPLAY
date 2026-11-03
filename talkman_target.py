@@ -345,13 +345,13 @@ class TargetController:
         tree = getattr(self.backend, "last_fill_tree", None)
         if isinstance(tree, dict):
             details = []
-            for key, label in (("nodes", "扫描节点"), ("text_controls", "文字控件"),
+            for key, label in (("nodes", "扫描节点"), ("web_areas", "网页区域"), ("text_controls", "文字控件"),
                                ("editable", "可编辑"), ("child_errors", "子树读取失败")):
                 value = tree.get(key)
                 if type(value) is int and 0 <= value <= 3000:
                     details.append(f"{label}：{value}")
             accessibility = getattr(self.backend, "last_fill_accessibility", None)
-            if accessibility in ("未尝试", "不支持，未尝试", "已启用，未重复设置", "已尝试并启用"):
+            if accessibility in ("未尝试", "不支持，未尝试", "已启用，已读回确认", "请求已接受，等待启用"):
                 details.append(f"辅助树：{accessibility}")
             elif isinstance(accessibility, str) and accessibility.startswith("尝试失败"):
                 details.append("辅助树：启用失败")

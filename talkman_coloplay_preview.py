@@ -173,7 +173,7 @@ class LocalDeviceSession:
 
     def render(self):
         state=self.controller.snapshot()
-        state['ready']=self.enabled and not self.controller.paused()
+        state['ready']=self.enabled
         valid=bool(self.lease.id()) and self.lease.pending[2]==self.controller.action_stamp(self.lease.pending[3])
         if not valid: self.lease.cancel()
         return self.runtime.render(state,self.now,bool(valid and self.lease.pending[3]=='select'),bool(valid))
@@ -344,7 +344,7 @@ class ColoPlaySimulator:
     def tick(self):
         if self.closed:return
         self.feed();self.paint()
-        self.controller.set_active(self.session.enabled and not self.controller.paused())
+        self.controller.set_active(self.session.enabled)
         self.job=self.win.after(40,self.tick)
 
     def close(self):

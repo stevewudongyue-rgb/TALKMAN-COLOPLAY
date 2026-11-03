@@ -985,6 +985,47 @@ class MacInputTreeRecoveryTests(unittest.TestCase):
         self.assertFalse(any(action[0] in ("clipboard", "paste", "move_caret", "selection")
                              for action in self.api.actions))
 
+    def test_electron_two_second_debounce_is_not_restarted_by_refresh(self):
+        clock = [10.0]
+        deadline = [None]
+        writes = []
+        def write(element, attribute, value):
+            writes.append((attribute, value))
+            deadline[0] = clock[0] + 2.0
+            return 0
+        self.api.write_with_status = write
+        def advance(seconds):
+            clock[0] += seconds
+            if clock[0] >= deadline[0] and not self.root.attributes.get('AXManualAccessibility'):
+                self.root.attributes['AXManualAccessibility'] = True
+                self.api.add_input(self.window, label='chat message')
+            elif self.wait.call_count % 3 == 0:
+                # 重复刷新／恢复请求不能重置 Electron 的防抖。
+                self.backend._enable_manual_accessibility(self.api, self.root,
+                    (self.selected.pid, self.selected.process_started))
+        self.wait.side_effect = advance
+        with patch.object(target.time, 'monotonic', side_effect=lambda: clock[0]):
+            self.backend.fill(self.selected, '离线测试')
+        self.assertGreaterEqual(self.wait.call_count, 20)
+        self.assertLessEqual(self.wait.call_count, 22)
+        self.assertEqual(writes, [('AXManualAccessibility', True)])
+        self.assertEqual(self.backend.last_fill_accessibility, '已启用，已读回确认')
+        self.assertEqual(self.api.actions[-1], ('paste',))
+
+    def test_accepted_request_without_readback_never_reports_enabled(self):
+        self.api.write_with_status = Mock(return_value=0)
+        with self.assertRaisesRegex(target.TargetError, '唯一'):
+            self.backend.fill(self.selected, '不能误填')
+        self.assertEqual(self.backend.last_fill_accessibility, '请求已接受，等待启用')
+        self.assert_no_paste()
+
+    def test_pending_request_is_separate_for_restarted_process(self):
+        self.api.write_with_status = Mock(return_value=0)
+        with patch.object(target.time, 'monotonic', return_value=10):
+            for started in (100.0, 100.0, 101.0):
+                self.backend._enable_manual_accessibility(self.api, self.root, (9876, started))
+        self.assertEqual(self.api.write_with_status.call_count, 2)
+
     def test_visible_window_hidden_web_tree_is_enabled_then_filled(self):
         original_set = self.api.set
 
@@ -996,7 +1037,7 @@ class MacInputTreeRecoveryTests(unittest.TestCase):
         self.api.set = enable
         self.backend.fill(self.selected, "离线测试")
         self.assertEqual(self.api.actions[-1], ("paste",))
-        self.assertEqual(self.backend.last_fill_accessibility, "已尝试并启用")
+        self.assertEqual(self.backend.last_fill_accessibility, "已启用，已读回确认")
         self.assertEqual(self.backend.last_fill_tree["editable"], 1)
         self.assertEqual(sum(a[0] == "set" and a[2] == "AXManualAccessibility"
                              for a in self.api.actions), 1)
@@ -1035,15 +1076,15 @@ class MacInputTreeRecoveryTests(unittest.TestCase):
         self.root.attributes["AXManualAccessibility"] = True
         self.wait.side_effect = lambda _: self.api.add_input(self.window, label="message")
         self.backend.fill(self.selected, "测试")
-        self.assertEqual(self.backend.last_fill_accessibility, "已启用，未重复设置")
+        self.assertEqual(self.backend.last_fill_accessibility, "已启用，已读回确认")
         self.assertFalse(any(a[0] == "set" and a[2] == "AXManualAccessibility" for a in self.api.actions))
 
     def test_empty_tree_times_out_and_reports_counts_without_clipboard(self):
         with self.assertRaisesRegex(target.TargetError, "唯一"):
             self.backend.fill(self.selected, "私密正文")
-        self.assertEqual(self.wait.call_count, 8)
+        self.assertEqual(self.wait.call_count, 35)
         self.assertEqual(self.backend.last_fill_tree,
-                         dict(nodes=1, text_controls=0, editable=0, child_errors=0))
+                         dict(nodes=1, text_controls=0, web_areas=0, editable=0, child_errors=0))
         self.assert_no_paste()
 
     def test_unsupported_tree_and_read_only_text_do_not_authorize_paste(self):
@@ -1242,7 +1283,7 @@ class MacScanTests(unittest.TestCase):
         self.api.set.assert_called_once_with(self.root, "AXManualAccessibility", True)
         window_reads = [item for item in self.api.get.call_args_list if item.args == (self.root, "AXWindows")]
         self.assertEqual(len(window_reads), 2)
-        self.assertIn("辅助树：已尝试并启用", self.backend.last_scan_report)
+        self.assertIn("辅助树：已启用，已读回确认", self.backend.last_scan_report)
         self.assertIn("重读 AXWindows：0", self.backend.last_scan_report)
         self.backend.list_windows()
         self.api.set.assert_called_once()
@@ -1262,7 +1303,7 @@ class MacScanTests(unittest.TestCase):
         self.root.writable.add("AXManualAccessibility")
         self.root.attributes["AXManualAccessibility"] = True
         self.assertEqual(self.backend.list_windows(), [])
-        self.assertIn("辅助树：已启用，未重复设置", self.backend.last_scan_report)
+        self.assertIn("辅助树：已启用，已读回确认", self.backend.last_scan_report)
         self.assertEqual(self.api.actions, [])
 
     def test_manual_accessibility_write_failure_does_not_hide_other_app(self):

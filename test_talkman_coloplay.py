@@ -282,6 +282,70 @@ class DesktopTests(unittest.TestCase):
         self.device.arm(dict(action='knob' if action=='fill' else action,id='test'))
         self.device.dispatch('coloplay_'+action)
 
+    def test_settings_keep_same_wifi_session_and_pause_actions_only(self):
+        a, d = self.app, self.device
+        self.ready.stop()
+        with patch('talkman_coloplay.StateServer', side_effect=lambda host, port, *args, **kwargs:
+                   StateServer(host, 0, *args, **kwargs)):
+            d.configure(dict(d.config, enabled=True, host='127.0.0.1', discovery=False))
+        d.registered = set(d.bindings())
+        server = d.server
+        a.set_text('设置期间保留正文')
+        def tick():
+            d.tick()
+            a.after_cancel(d.job)
+            d.job = None
+            a.update_idletasks()
+        with connect(f'ws://127.0.0.1:{server.port}', proxy=None) as ws:
+            ws.send(json.dumps(dict(type='hello', version=1, token=d.config['token'],
+                                   config=config_id(d.config), heartbeat='state-ack')))
+            first = json.loads(ws.recv(timeout=2))
+            tick()
+            peer = d.peer
+            self.assertTrue(d.ready())
+            d.arm(dict(action='cancel_delete', id='before-settings'))
+            a.open_settings('coloplay')
+            tick()
+            self.assertTrue(d.connected())
+            self.assertTrue(d.active)
+            self.assertFalse(d.ready())
+            self.assertEqual(d.intent.id(), '')
+            self.assertIn('已连接', d.badge.get())
+            self.assertEqual(d.snapshot()['phase'], 'blocked')
+            self.assertTrue(d.snapshot()['ready'])
+            self.assertFalse(d.snapshot()['can_fill'])
+            d.dispatch('coloplay_cancel_delete')
+            d.arm(dict(action='record', id='while-settings'))
+            d.dispatch('coloplay_record')
+            self.assertIsNone(a.voice)
+            self.assertEqual(a.current_text(), '设置期间保留正文')
+            # 超过服务端 4 秒心跳超时，实际回环收发必须维持同一会话。
+            deadline = time.monotonic() + 4.3
+            pages = iter(('window', 'target', 'coloplay'))
+            switched = time.monotonic()
+            while time.monotonic() < deadline:
+                ws.send(json.dumps(dict(type='heartbeat')))
+                frame = json.loads(ws.recv(timeout=2))
+                self.assertEqual(frame['session'], first['session'])
+                self.assertEqual(d.peer, peer)
+                self.assertIs(d.server, server)
+                tick()
+                if time.monotonic()-switched > 1:
+                    page = next(pages, None)
+                    if page:
+                        a.open_settings(page)
+                    switched = time.monotonic()
+            self.assertTrue(frame['ready'])
+            self.assertEqual(frame['title'], '桌面设置中')
+            a._close_settings(a.settings_window)
+            d.registered = set(d.bindings())
+            tick()
+            self.assertTrue(d.ready())
+            self.assertEqual(d.peer, peer)
+            self.assertEqual(d.snapshot()['phase'], 'idle')
+            self.action('cancel_delete')
+            self.assertEqual(a.current_text(), '设置期间保留正')
+
     def test_delete_selection_and_unicode_cluster_is_one_undo(self):
         for value,result in [('中文','文'),('e\u0301文','文'),('👨‍👩‍👧‍👦文','文'),('🇨🇳文','文'),('👍🏽文','文')]:
             with self.subTest(value=value):

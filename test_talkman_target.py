@@ -653,7 +653,7 @@ class TargetTests(unittest.TestCase):
         backend.last_fill_stage = "未暴露可编辑输入框"
         backend.last_fill_tree = dict(nodes=3, text_controls=1, editable=0,
                                      child_errors="私密正文", label="私密标题")
-        backend.last_fill_accessibility = "已尝试并启用"
+        backend.last_fill_accessibility = "已启用，已读回确认"
         backend.fill = Mock(side_effect=TargetError("未找到输入框"))
         with tempfile.TemporaryDirectory() as directory:
             controller = TargetController(Path(directory), backend=backend)
@@ -665,7 +665,7 @@ class TargetTests(unittest.TestCase):
             self.assertIn("扫描节点：3", report)
             self.assertIn("文字控件：1", report)
             self.assertIn("可编辑：0", report)
-            self.assertIn("辅助树：已尝试并启用", report)
+            self.assertIn("辅助树：已启用，已读回确认", report)
             self.assertNotIn("私密", report)
             self.assertNotIn("子树读取失败", report)
             controller.close()

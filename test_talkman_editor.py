@@ -170,7 +170,44 @@ class RuledEditorTests(unittest.TestCase):
         self.assertEqual(text._caret_widget.winfo_x(), text.bbox("1.3")[0])
         text.set_operation_caret(None)
         self.root.update()
+        self.assertTrue(text._caret_widget.winfo_ismapped())
+        self.assertEqual(text._caret_widget.winfo_x(), text.bbox('insert')[0])
+
+    def test_unfocused_caret_tracks_insert_without_changing_selection_or_focus(self):
+        text = self.text
+        text.insert('1.0', '输入结束后仍能定位\n下一段')
+        text.mark_set('insert', '1.5')
+        text.tag_add('sel', '1.2', '1.4')
+        self.root.focus_force()
+        self.root.update()
+        before = (text.get('1.0', 'end-1c'), text.tag_ranges('sel'), text.focus_displayof())
+        self.assertTrue(text._caret_widget.winfo_ismapped())
+        self.assertEqual(text._caret_widget.winfo_x(), text.bbox('1.5')[0])
+        text.mark_set('insert', '2.2')
+        self.root.update()
+        self.assertEqual(text._caret_widget.winfo_y(), text.bbox('2.2')[1])
+        self.assertEqual(before, (text.get('1.0', 'end-1c'), text.tag_ranges('sel'), text.focus_displayof()))
+        text.focus_force()
+        self.root.update()
         self.assertFalse(text._caret_widget.winfo_ismapped())
+        self.root.focus_force()
+        self.root.update()
+        self.assertTrue(text._caret_widget.winfo_ismapped())
+
+    def test_unfocused_caret_outside_view_is_hidden_until_scrolled_back(self):
+        text = self.text
+        text.insert('1.0', '测试一行\n' * 40)
+        text.mark_set('insert', '1.2')
+        self.root.focus_force()
+        text.see('insert')
+        self.root.update()
+        self.assertTrue(text._caret_widget.winfo_ismapped())
+        text.yview_moveto(1)
+        self.root.update()
+        self.assertFalse(text._caret_widget.winfo_ismapped())
+        text.see('insert')
+        self.root.update()
+        self.assertTrue(text._caret_widget.winfo_ismapped())
 
     def test_repeated_operation_caret_redraw_settles_without_expose_idle_loop(self):
         text = self.text

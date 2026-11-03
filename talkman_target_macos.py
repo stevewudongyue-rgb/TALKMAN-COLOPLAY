@@ -293,6 +293,7 @@ class MacTargetBackend:
         self.last_fill_focus_role = "未知"
         self.last_fill_tree = {}
         self.last_fill_accessibility = "未尝试"
+        self._manual_requests: dict[tuple[int, float], float] = {}
 
     def _ensure_api(self) -> Any:
         if self._api is None:
@@ -303,6 +304,7 @@ class MacTargetBackend:
 
     def close(self) -> None:
         self._records.clear()
+        self._manual_requests.clear()
 
     def _allowed(self, info: dict[str, Any]) -> bool:
         return not self._skip_reason(info)
@@ -370,19 +372,34 @@ class MacTargetBackend:
     def _status_label(status: int | None) -> str:
         return str(status) if status is not None else "读取异常"
 
-    def _enable_manual_accessibility(self, api: Any, root: Any) -> str:
+    def _enable_manual_accessibility(self, api: Any, root: Any,
+                                     session: tuple[int, float]) -> str:
         # Electron 为第三方辅助技术提供此属性，用于开启可访问树。
         try:
+            if api.get(root, "AXManualAccessibility", False):
+                self._manual_requests.pop(session, None)
+                return "已启用，已读回确认"
             if not api.settable(root, "AXManualAccessibility"):
                 return "不支持，未尝试"
-            if api.get(root, "AXManualAccessibility", False):
-                return "已启用，未重复设置"
+            now = time.monotonic()
+            previous = self._manual_requests.get(session)
+            # Electron 每次设置都会重置约 2 秒的防抖计时；等待中不能重复请求。
+            if previous is not None and now - previous < 5.0:
+                return "请求已接受，等待启用"
             method = getattr(api, "write_with_status", None)
             if method:
                 status = method(root, "AXManualAccessibility", True)
-                return "已尝试并启用" if status == 0 else f"尝试失败（AX 错误 {self._status_label(status)}）"
-            api.set(root, "AXManualAccessibility", True)
-            return "已尝试并启用"
+                if status != 0:
+                    return f"尝试失败（AX 错误 {self._status_label(status)}）"
+            else:
+                api.set(root, "AXManualAccessibility", True)
+            if len(self._manual_requests) >= 64:
+                self._manual_requests.pop(next(iter(self._manual_requests)))
+            self._manual_requests[session] = now
+            if api.get(root, "AXManualAccessibility", False):
+                self._manual_requests.pop(session, None)
+                return "已启用，已读回确认"
+            return "请求已接受，等待启用"
         except Exception:
             return "尝试失败（调用异常）"
 
@@ -429,8 +446,8 @@ class MacTargetBackend:
                 initial_status = status
                 manual = "未需要"
                 if not windows:
-                    manual = self._enable_manual_accessibility(api, root)
-                    if manual == "已尝试并启用":
+                    manual = self._enable_manual_accessibility(api, root, (info["pid"], info["started"]))
+                    if manual in ("已启用，已读回确认", "请求已接受，等待启用"):
                         windows, status, fallback = self._read_windows(api, root)
                 if initial_status != 0:
                     errors.append(f"{clean(info.get('name'))}：{self._status_label(initial_status)}")
@@ -439,7 +456,8 @@ class MacTargetBackend:
                 lines.append(
                     f"{prefix} | AXWindows：{self._status_label(initial_status)}"
                     f" | 可用窗口：{len(windows)} | 回退：{fallback} | 辅助树：{manual}"
-                    + (f" | 重读 AXWindows：{self._status_label(status)}" if manual == "已尝试并启用" else "")
+                    + (f" | 重读 AXWindows：{self._status_label(status)}"
+                       if manual in ("已启用，已读回确认", "请求已接受，等待启用") else "")
                 )
                 for element in windows:
                     title = str(api.get(element, "AXTitle", "") or "").strip() or info["name"]
@@ -592,6 +610,7 @@ class MacTargetBackend:
         unlabelled: list[Any] = []
         editable_count = 0
         text_controls = 0
+        web_areas = 0
         child_errors = 0
         unlabelled_count = 0
         fallback_allowed = (
@@ -605,8 +624,11 @@ class MacTargetBackend:
             if any(api.equal(element, other) for other in seen):
                 continue
             seen.append(element)
-            if api.get(element, "AXRole") in ("AXTextArea", "AXTextField"):
+            role = api.get(element, "AXRole")
+            if role in ("AXTextArea", "AXTextField"):
                 text_controls += 1
+            elif role == "AXWebArea":
+                web_areas += 1
             if len(seen) > 3000:
                 raise TargetError("目标界面内容较多，请先点击 Agent 的主输入框再试。")
             if self._is_editable(element) and self._belongs(element, record):
@@ -623,7 +645,7 @@ class MacTargetBackend:
             if status not in (0, -25205, -25212):  # unsupported/no-value are normal for leaves
                 child_errors += 1
             pending.extend(children or [])
-        self.last_fill_tree = dict(nodes=len(seen), text_controls=text_controls,
+        self.last_fill_tree = dict(nodes=len(seen), text_controls=text_controls, web_areas=web_areas,
                                    editable=editable_count, child_errors=child_errors)
         ranked = sorted((
             (sum(weight for word, weight in _MAIN_INPUT if word in self._input_label(element)), element)
@@ -651,10 +673,13 @@ class MacTargetBackend:
 
     def _recover_input_tree(self, target: TargetWindow, record: _WindowRecord,
                             *, allow_focused: bool) -> tuple[Any, Any, bool]:
-        # A visible Electron window can exist before its web input accessibility tree.
-        # Only repair the selected window on an explicit fill; don't enable every app on scan.
-        self.last_fill_accessibility = self._enable_manual_accessibility(self._api, record.root)
-        for _ in range(8):
+        # Electron 的 AXManualAccessibility 成功回执只表示接收请求，约 2 秒后才启用。
+        # 原生实现：electron v37.3.1 / shell/browser/mac/electron_application.mm:328-364。
+        session = (target.pid, target.process_started)
+        self.last_fill_accessibility = self._enable_manual_accessibility(self._api, record.root, session)
+        attempts = 35 if self.last_fill_accessibility in (
+            "已启用，已读回确认", "请求已接受，等待启用") else 8
+        for _ in range(attempts):
             time.sleep(0.1)
             self.last_fill_stage = "等待输入框加载"
             record = self._validate(target)
@@ -662,6 +687,12 @@ class MacTargetBackend:
                 raise TargetError("目标窗口已关闭或会话已变化，请刷新并重新选择。")
             if not self._same_window(record):
                 raise TargetError("目标窗口已失去焦点，已取消填入。")
+            if self.last_fill_accessibility in ("已启用，已读回确认", "请求已接受，等待启用"):
+                if self._api.get(record.root, "AXManualAccessibility", False):
+                    self._manual_requests.pop(session, None)
+                    self.last_fill_accessibility = "已启用，已读回确认"
+                else:
+                    self.last_fill_accessibility = "请求已接受，等待启用"
             current = self._focused_input(record)
             if current is not None and allow_focused:
                 return record, current, True

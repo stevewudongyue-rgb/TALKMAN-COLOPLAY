@@ -147,6 +147,12 @@ class ColoPlayController:
         return bool(not self.local_session and self.server and self.peer and set(self.bindings()) <= self.registered
                     and not self.paused())
 
+    def connected(self):
+        """连接与按键可用性独立：打开设置不会断开已配对会话。"""
+        if self.local_session:
+            return bool(self.local_session.enabled)
+        return bool(self.server and self.peer)
+
     def paused(self):
         a = self.app
         return (any(win and win.winfo_exists() for win in
@@ -522,13 +528,17 @@ class ColoPlayController:
         following = name(windows[(index+1)%len(windows)]) if index>=0 and len(windows)>1 else ''
         page_start = max(index,0)//TARGET_PAGE_SIZE*TARGET_PAGE_SIZE
         page_names = [name(w) for w in windows[page_start:page_start+TARGET_PAGE_SIZE]]
-        return dict(ready=self.ready(), phase=phase, title=title,
+        paused = self.paused()
+        if paused:
+            phase, title = 'blocked', '桌面设置中'
+            target_name = '关闭后继续操作'
+        return dict(ready=self.ready() or (self.connected() and paused), phase=phase, title=title,
                     confirmation=self.confirmation_marker(), target_marker=self.target_marker(),
                     selecting=self.editor_focus.selecting,
                     send_seconds=max(1,int((a.pending_delivery['expires']-time.monotonic())+.999)) if self.device_send_pending() else 0,
                     editor_focused=focused, selection_count=self.editor_focus.selection_count(),
                     target=target_name, hidden=self.hidden, arm=self.intent.id(), cycling=self.cycling,
-                    target_view=self.cycling or self.target_scanning or bool(self.target_due) or time.monotonic()<self.target_view_until,
+                    target_view=not paused and (self.cycling or self.target_scanning or bool(self.target_due) or time.monotonic()<self.target_view_until),
                     target_waiting=bool(self.target_due),target_scanning=self.target_scanning,
                     target_progress=1,
                     target_choice=name(choice) if choice else '',
@@ -541,7 +551,7 @@ class ColoPlayController:
                                 record='结束' if phase in ('opening','recording') else '录入' if phase == 'idle' else '等待',
                                 rewrite='指令', modifier='组合', clear='清空'),
                     can_copy=False,
-                    can_fill=self.semantic('fill') is not None)
+                    can_fill=not paused and self.semantic('fill') is not None)
 
     def tick(self):
         if self.closed: return
@@ -591,19 +601,28 @@ class ColoPlayController:
                 elif kind == 'cancel_intent':
                     self.intent.cancel(); self.cancel_navigation(); self.scroll.cancel()
         if self.usb_bridge: self.usb_bridge.poll()
+        paused = self.paused()
+        if paused and not getattr(self, '_was_paused', False):
+            self.intent.cancel()
+            self.cancel_navigation()
+            self.cancel_device_send()
+            self.scroll.cancel()
+            if self.local_session:
+                self.local_session.reset()
+        self._was_paused = paused
         local_active=bool(self.local_session and self.local_session.enabled and not self.paused())
-        self.set_active(self.ready() or local_active)
+        self.set_active(self.ready() or local_active or (self.connected() and paused))
         if self.local_session:
             source='模拟' if self.simulator else 'USB'
-            status='已退出' if not self.local_session.enabled else '已暂停' if self.paused() else '已连接'
+            status='已退出' if not self.local_session.enabled else '已连接 · 操作暂停' if paused else '已连接'
             self.badge.set('● '+source+' '+status)
         else:
-            self.badge.set('● Wi-Fi 已暂停' if self.peer and self.paused() else
+            self.badge.set('● Wi-Fi 已连接 · 操作暂停' if self.connected() and paused else
                            '● Wi-Fi 已连接' if self.active else
                            '○ 快捷键未就绪' if self.peer else '○ 未连接')
         if not self.scroll.errors.empty(): self.local_notice(self.scroll.errors.get_nowait())
-        self.app.wordmark.set_connected(self.active)
-        self.app.coloplay_status.configure(style='Connected.Device.Ghost.TButton' if self.active else 'Device.Ghost.TButton')
+        self.app.wordmark.set_connected(self.connected())
+        self.app.coloplay_status.configure(style='Connected.Device.Ghost.TButton' if self.connected() else 'Device.Ghost.TButton')
         self.app.matrix_status.update_status(self.phase()[0], self.app.voice_mode, time.monotonic())
         if self.server: self.server.publish(self.snapshot())
         if (self.active and not self.guide_offered and self.app.window_controller.native_enabled

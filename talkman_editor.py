@@ -45,7 +45,7 @@ class RuledText(tk.Text):
         """, self.tk.call("list", self._original_command), self.tk.call("list", self._notify_command))
         self.tk.call("proc", self._w, "args", dispatch)
         # 子装饰的隐藏/显示会产生 Expose；监听它会造成光标重绘的无限 idle 循环。
-        for event in ("<Configure>", "<<ThemeChanged>>"):
+        for event in ("<Configure>", "<<ThemeChanged>>", "<FocusIn>", "<FocusOut>"):
             self.bind(event, self._schedule_redraw, add=True)
         self.bind("<Destroy>", self._on_destroy, add=True)
         self.set_editor_palette(self.cget("background"), self.cget("foreground"),
@@ -62,7 +62,7 @@ class RuledText(tk.Text):
         self._schedule_redraw()
 
     def set_operation_caret(self, index=None):
-        """设为 None 关闭；否则在指定索引显示不闪烁、不会抢焦点的操作光标。"""
+        """显示操作光标；None 恢复为原生光标或失焦时的静态位置标记。"""
         self._operation_caret = None if index is None else self.index(index)
         self._schedule_redraw()
 
@@ -196,8 +196,11 @@ class RuledText(tk.Text):
             else:
                 widget.place_forget()
         caret_visible = False
-        if self._operation_caret is not None:
-            box = self.bbox(self._operation_caret)
+        caret_index = self._operation_caret
+        if caret_index is None and self.focus_displayof() != self:
+            caret_index = 'insert'
+        if caret_index is not None:
+            box = self.bbox(caret_index)
             if box:
                 x, y, _w, caret_height = box
                 top, end = max(inset, y), min(bottom, y + caret_height)
