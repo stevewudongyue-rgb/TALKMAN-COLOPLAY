@@ -22,6 +22,7 @@ from talkman_coloplay_discovery import DiscoveryService, local_addresses
 from talkman_target import is_agent_window
 from talkman_coloplay_highlight import TargetHighlight
 from talkman_coloplay_scroll import ScrollWorker, SCROLL_ACTIONS
+from talkman_coloplay_cartridge import CARTRIDGE_BUILD, FILL_HOLD_MS, valid_build, version_status
 
 
 TARGET_PAGE_SIZE = 4
@@ -36,6 +37,10 @@ class ColoPlayController:
         self.discovery = None
         self.discovery_error = ''
         self.peer = None
+        self.device_build = None
+        self.cartridge_offer = {}
+        self.cartridge_download = None
+        self.cartridge_request = ''
         self.active = False
         self.delivery_epoch = 0
         self.sending = False
@@ -68,6 +73,7 @@ class ColoPlayController:
         self.notice = ''
         self.notice_until = 0
         self.badge = tk.StringVar(app, '○ 未连接')
+        self.cartridge_status = tk.StringVar(app, version_status(None))
         from talkman_coloplay_focus import EditorKnobFocus
         self.editor_focus = EditorKnobFocus(self)
         try:
@@ -130,18 +136,22 @@ class ColoPlayController:
         self.app.window_controller.sync_hotkeys()
 
     def stop_service(self):
+        self.stop_cartridge_download()
         if getattr(self, 'discovery', None):
             self.discovery.stop()
             self.discovery = None
         self.registered.clear()
         self.peer = None
+        self.device_build = None
         self.intent.cancel()
         self.set_active(False)
         if self.server:
             self.server.stop()
             self.server = None
         while not self.events.empty():
-            self.events.get_nowait()
+            kind,_,value=self.events.get_nowait()
+            if kind=='cartridge_ready' and value[1]:
+                threading.Thread(target=value[1].close,daemon=True).start()
 
     def ready(self):
         return bool(not self.local_session and self.server and self.peer and set(self.bindings()) <= self.registered
@@ -152,6 +162,46 @@ class ColoPlayController:
         if self.local_session:
             return bool(self.local_session.enabled)
         return bool(self.server and self.peer)
+
+    def cartridge_version(self):
+        if self.local_session:
+            return getattr(self.local_session, 'device_build', None)
+        return self.device_build if self.peer else None
+
+    def stop_cartridge_download(self):
+        self.cartridge_offer = {}
+        self.cartridge_request = ''
+        download = getattr(self, 'cartridge_download', None)
+        self.cartridge_download = None
+        if download:
+            threading.Thread(target=download.close, daemon=True).start()
+
+    def prepare_cartridge_update(self, request):
+        identifier = request.get('id', '')
+        if not isinstance(identifier, str) or not 1 <= len(identifier) <= 32:return
+        if identifier == self.cartridge_request:return
+        self.stop_cartridge_download()
+        self.cartridge_request = identifier
+        if self.phase()[0] != 'idle' or self.paused() or self.app.input_picker.active:
+            self.cartridge_offer = dict(id=identifier,status='error',message='先结束编辑操作')
+            return
+        self.intent.cancel();self.cancel_navigation();self.cancel_device_send()
+        if self.device_build and self.device_build >= CARTRIDGE_BUILD:
+            self.cartridge_offer = dict(id=identifier,status='current',message='已是电脑附带版本')
+            return
+        if self.peer is None:return
+        self.cartridge_offer = dict(id=identifier,status='preparing')
+        peer, host = self.peer, self.config['host']
+        def prepare():
+            from talkman_coloplay_update import CartridgeDownload
+            download = None
+            try:download=CartridgeDownload(host);error=''
+            except (OSError,ValueError,KeyError):error='升级卡带未就绪，请升级电脑端'
+            if self.closed or peer != self.peer or identifier != self.cartridge_request:
+                if download:download.close()
+                return
+            self.events.put(('cartridge_ready',peer,(identifier,download,error)))
+        threading.Thread(target=prepare, daemon=True, name='TalkMan-准备卡带').start()
 
     def paused(self):
         a = self.app
@@ -556,6 +606,8 @@ class ColoPlayController:
             phase, title = 'blocked', '桌面设置中'
             target_name = '关闭后继续操作'
         return dict(ready=self.ready() or (self.connected() and paused), phase=phase, title=title,
+                    device_build=self.cartridge_version(),
+                    cartridge_update=self.cartridge_offer,
                     input_selecting=a.input_picker.active,
                     input_index=a.input_picker.index+1, input_count=len(a.input_picker.regions),
                     input_error=bool(a.input_picker.error), input_loading=a.input_picker.loading or a.input_picker.confirming,
@@ -617,19 +669,36 @@ class ColoPlayController:
                     self.target_view_until=time.monotonic()+1.8
                     self.app.status_var.set('未找到 Agent 窗口，请打开后再旋转')
             elif kind == 'connected':
+                self.stop_cartridge_download()
                 self.peer = peer
+                self.device_build = valid_build(value)
                 self.intent.cancel()
+            elif kind == 'cartridge_ready':
+                identifier,download,error=value
+                if peer != self.peer or identifier != self.cartridge_request:
+                    if download:threading.Thread(target=download.close,daemon=True).start()
+                elif error:self.cartridge_offer=dict(id=identifier,status='error',message=error)
+                else:
+                    self.cartridge_download=download
+                    self.cartridge_offer=dict(download.offer,id=identifier,status='ready')
             elif peer == self.peer:
                 if kind in ('disconnected', 'exit'):
                     if self.app.input_picker.active and self.app.input_picker.source == 'device':
                         self.app.input_picker.cancel()
                     self.peer = None
+                    self.device_build = None
+                    self.stop_cartridge_download()
                     self.intent.cancel()
                     self.cancel_navigation()
                 elif kind == 'intent': self.arm(value)
+                elif kind == 'cartridge_check': self.prepare_cartridge_update(value)
                 elif kind == 'cancel_intent':
                     self.intent.cancel(); self.cancel_navigation(); self.scroll.cancel()
         if self.usb_bridge: self.usb_bridge.poll()
+        if self.cartridge_download and time.monotonic() >= self.cartridge_download.expires:
+            self.stop_cartridge_download()
+        self.cartridge_status.set(version_status(self.cartridge_version(), connected=self.connected(),
+                                                simulator=bool(self.simulator)))
         paused = self.paused()
         if paused and not getattr(self, '_was_paused', False):
             self.app.input_picker.cancel(quiet=True)
@@ -706,7 +775,7 @@ class ColoPlayController:
                  f' url = "ws://{cfg["host"]}:{cfg["port"]}",',
                  f' discovery = {str(cfg.get("discovery", True)).lower()}, discovery_port = 18744,',
                  f' token = "{cfg["token"]}", config = "{config_id(cfg)}",',
-                 ' center=4, left=5, right=6, fill_ms=800, exit_ms=5000, keys={']
+                 f' center=4, left=5, right=6, fill_ms={FILL_HOLD_MS}, exit_ms=5000, keys={{']
         for action, binding in cfg['bindings'].items():
             modifier, key = hid_binding(binding)
             lines.append(f'  {action}={{{modifier},{key}}},')

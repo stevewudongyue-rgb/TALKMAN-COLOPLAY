@@ -12,6 +12,7 @@ import time
 
 from websockets.sync.server import serve
 from websockets.exceptions import ConnectionClosed
+from talkman_coloplay_cartridge import valid_build
 
 
 class StateServer:
@@ -65,11 +66,10 @@ class StateServer:
                     return
                 self.peer = (peer_id, ws)
                 accepted = True
-            self.events.put(('connected', peer_id, None))
-            build = hello.get('device_build')
-            build = build if type(build) is int and 1 <= build <= 100000 else '未知'
+            build = valid_build(hello.get('device_build'))
+            self.events.put(('connected', peer_id, build))
             self.diagnostics.info('连接建立 会话=%s 模式=%s 卡带构建=%s', peer_id,
-                                  '顺序收发' if hello.get('heartbeat') == 'state-ack' else '旧版收发', build)
+                                  '顺序收发' if hello.get('heartbeat') == 'state-ack' else '旧版收发', build or '未知')
             # 新卡带以状态帧驱动下一轮收发，100ms 上限兼顾旋钮响应和设备负载。
             interval = .1 if hello.get('heartbeat') == 'state-ack' else .25
             last_rx = time.monotonic()
@@ -105,11 +105,11 @@ class StateServer:
                 if kind == 'heartbeat':
                     last_rx = now
                     heartbeats += 1
-                elif kind in ('intent', 'cancel_intent', 'exit'):
+                elif kind in ('intent', 'cancel_intent', 'exit', 'cartridge_check'):
                     if self.events.qsize() >= 32:
                         reason = '动作队列已满'
                         ws.close(1013, '请稍后重试'); break
-                    if kind == 'intent':
+                    if kind in ('intent', 'cartridge_check'):
                         identifier = message.get('id')
                         if not isinstance(identifier, str) or not 1 <= len(identifier) <= 32:
                             reason = '动作编号错误'

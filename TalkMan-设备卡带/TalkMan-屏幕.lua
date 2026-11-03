@@ -154,8 +154,23 @@ function TMDraw(m)
   line(120+math.cos(a)*r,120+math.sin(a)*r,120+math.cos(a)*112,120+math.sin(a)*112,C.edge)
  end
  wordmark()
+ if m.device_build then text('卡带'..tostring(m.device_build),120,35,70,C.off,12) end
+ if m.update_hold or (m.update_phase and m.update_phase~='idle') then
+  if m.update_hold and (not m.update_phase or m.update_phase=='idle') then
+   local progress=math.min(1,(m.now-m.update_hold)/5000)
+   progress_ring(progress,C.ink)
+   text('更新卡带',120,84,180,C.text,20,true)
+   text(tostring(math.max(0,math.ceil(5-(m.now-m.update_hold)/1000)))..' 秒',120,117,160,C.ink,22,true)
+   text('松开任一键取消',120,159,190,C.muted,14)
+  else
+   icon('link',120,83,C.ink)
+   text(m.update_message or '正在检查',120,119,202,C.text,16)
+   text('原卡带保留',120,165,180,C.muted,14)
+  end
+  return
+ end
  if m.input_selecting and live and not m.inactive then
-  text('选择输入位置',120,49,168,C.muted)
+  text('选择输入位置',120,55,168,C.muted)
   text(m.input_target or '',120,72,174,C.text)
   if phase=='recording' or phase=='opening' then
    text('说位置指令',120,106,174,C.ink,22,true)

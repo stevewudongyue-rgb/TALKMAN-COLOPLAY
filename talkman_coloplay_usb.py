@@ -13,6 +13,7 @@ import time
 
 from talkman_coloplay_protocol import config_id
 from talkman_coloplay_preview import LocalDeviceSession
+from talkman_coloplay_cartridge import valid_build
 
 VID, PID = 0x303A, 0x4005
 HEADER = struct.Struct('<IHHIHHHH')
@@ -115,6 +116,10 @@ class UsbWire:
                 m.get('config')!=config_id(self.config)):return None
         if any(type(m.get(k)) is not int for k in ('seq','mask','frame')):return None
         if not 0<=m['mask']<=255 or m['seq']<0:return None
+        build = valid_build(m.get('device_build'))
+        if build != getattr(self, 'device_build', None):
+            self.device_build = build
+            self.put('device_build', build)
         if m.get('exit') is True:return 'exit'
         if m['frame'] not in self.frames or now-self.frames[m['frame']]>1.5:
             if m['mask']==0:self.last_seq=None
@@ -203,7 +208,10 @@ class UsbBridge:
             except queue.Empty:break
             if kind in ('error','connected'):self.controller.local_notice(value)
             if kind=='closed':
+                self.session.device_build=None
                 self.session.enabled=False;self.session.reset();self.streaming=False
+            elif kind=='device_build':
+                self.session.device_build=valid_build(value)
             elif kind=='exit':
                 self.exited=True;self.session.enabled=False;self.session.reset();self.streaming=False
             elif kind=='wake':

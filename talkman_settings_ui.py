@@ -235,6 +235,17 @@ class SettingsPanelMixin:
         self.appearance_choice.bind('<<ComboboxSelected>>', change_appearance)
         ttk.Label(box, text='主题切换立即生效，并记住你的选择。', style='Muted.TLabel').pack(anchor='w', pady=(0, 8))
         device = self.coloplay
+        ttk.Label(box, textvariable=device.cartridge_status).pack(anchor='w', pady=(6, 4))
+        from talkman_coloplay_cartridge import UPDATE_HELP
+        update_help = ttk.Frame(box)
+        def toggle_update_help():
+            if update_help.winfo_manager():
+                update_help.pack_forget()
+            else:
+                update_help.pack(fill='x', after=update_button, pady=(4, 12))
+        update_button = self.button(box, '卡带版本与升级说明', toggle_update_help, style='Ghost.TButton')
+        update_button.pack(anchor='w', pady=(0, 6))
+        ttk.Label(update_help, text=UPDATE_HELP, wraplength=520, style='Muted.TLabel').pack(fill='x')
         values = {}
         rows = [
             ('keep_on_top', '设备工作时保持 TalkMan 置顶', '关闭后遵循「窗口」页面原有设置。'),
@@ -250,7 +261,7 @@ class SettingsPanelMixin:
             ttk.Checkbutton(row, text=label, variable=values[key]).pack(anchor='w')
             ttk.Label(row, text=hint, style='Muted.TLabel', wraplength=540).pack(anchor='w', padx=24, pady=(3, 0))
         ttk.Label(box, text='按住右下旋转预选，松开右下选定目标。', style='Muted.TLabel').pack(anchor='w', pady=(12, 8))
-        note = tk.StringVar(win, '长按旋钮填入；成功后 5 秒内短按左上发送。左上长按 5 秒退出设备模式。')
+        note = tk.StringVar(win, '新版卡带按住旋钮 0.5 秒，松开填入；成功后 5 秒内短按左上发送。左上长按 5 秒退出设备模式。')
         ttk.Label(box, textvariable=note, style='Muted.TLabel', wraplength=540).pack(fill='x', pady=(4, 12))
         def save():
             try:

@@ -12,6 +12,7 @@ from PIL import Image, ImageDraw, ImageFont, ImageTk
 
 from talkman_coloplay_protocol import Intent
 from talkman_coloplay_scroll import SCROLL_ACTIONS
+from talkman_coloplay_cartridge import CARTRIDGE_BUILD, FILL_HOLD_MS
 
 ROOT = Path(getattr(sys, '_MEIPASS', Path(__file__).parent)) / 'TalkMan-设备卡带'
 
@@ -20,7 +21,8 @@ class DeviceRuntime:
     def __init__(self):
         self.lua = LuaRuntime(unpack_returned_tuples=True)
         self.lua.execute((ROOT/'TalkMan-手势.lua').read_text('utf-8'))
-        self.config = self.lua.table_from(dict(center=4, left=5, right=6, fill_ms=800, exit_ms=5000))
+        self.lua.execute((ROOT/'TalkMan-更新组合.lua').read_text('utf-8'))
+        self.config = self.lua.table_from(dict(center=4, left=5, right=6, fill_ms=FILL_HOLD_MS, exit_ms=5000))
         self.reset()
         self.image = Image.new('RGB', (240, 240))
         self.draw = ImageDraw.Draw(self.image)
@@ -72,21 +74,22 @@ class DeviceRuntime:
         self.lua.execute((ROOT/'TalkMan-屏幕.lua').read_text('utf-8'))
 
     def reset(self):
-        self.gesture = self.lua.globals().TMGesture(self.config)
+        self.gesture = self.lua.globals().TMUpdateControls(self.config)
         self.mask = 0
 
-    def step(self, mask, now):
+    def step(self, mask, now, context=None):
         self.mask = mask
         buttons = self.lua.table_from({i:bool(mask & (1<<i)) for i in range(8)})
-        return list(self.gesture.step(self.gesture, buttons, now).values())
+        return list(self.gesture.step(self.gesture, buttons, now, context).values())
 
     def render(self, state, now, pending=False, armed=False):
         self.text_layout=[]
         g = self.gesture
         m = dict(state, now=now, configured=True, buttons={i:bool(self.mask & (1<<i)) for i in range(8)},
+                 update_hold=g.started,
                  modifier=bool(self.mask & 8), ul=g.ul, exit_ms=5000, pending=pending,
-                 armed=armed, hold_short=g.knob is not None and now-g.knob<800,
-                 fill_progress=min(1,max(0,(now-g.knob)/800)) if g.knob is not None and pending else None,
+                 armed=armed, hold_short=g.knob is not None and now-g.knob<self.config.fill_ms,
+                 fill_progress=min(1,max(0,(now-g.knob)/self.config.fill_ms)) if g.knob is not None and pending else None,
                  fill_cancelled=g.knob is not None and g.cancelled,
                  send_current=g.knob is not None and g.send_combo and not g.cancelled,
                  scroll_axis=('横向' if self.mask & 16 else '纵向') if self.mask & 8 else '', inactive=bool(g.exited))
@@ -98,6 +101,7 @@ class LocalDeviceSession:
     """本机模拟器或经过验证的 USB 会话。网络/HID 仍使用原预约入口。"""
     def __init__(self, controller, source='simulator', clock=time.monotonic):
         self.controller, self.source, self.clock = controller, source, clock
+        self.device_build = CARTRIDGE_BUILD if source == 'simulator' else None
         self.runtime = DeviceRuntime()
         self.lease = Intent(clock)
         self.enabled = True
@@ -121,8 +125,14 @@ class LocalDeviceSession:
         previous = self.runtime.mask
         if mask & 8 and not previous & 8:
             self.lease.cancel(); self.turns=0; c.cancel_navigation(); c.scroll.cancel()
-        for action in self.runtime.step(mask,self.now):
-            if action == 'exit':
+        for action in self.runtime.step(mask,self.now,c.phase()[0]):
+            if action == 'update_hold':
+                self.lease.cancel();self.turns=0;c.cancel_navigation();c.cancel_device_send()
+            elif action == 'cartridge_update':
+                self.update_feedback=('模拟器不安装卡带' if self.source=='simulator' else '纯 USB 请手动更新卡带')
+                self.update_until=self.now+5000
+                c.local_notice(self.update_feedback)
+            elif action == 'exit':
                 self.enabled=False; self.lease.cancel(); self.turns=0
                 c.set_active(False)
             elif action in ('arm_knob', 'arm_ai', 'arm_send_current'):
@@ -174,6 +184,8 @@ class LocalDeviceSession:
     def render(self):
         state=self.controller.snapshot()
         state['ready']=self.enabled
+        if self.now < getattr(self,'update_until',0):
+            state.update(update_phase='done',update_message=self.update_feedback)
         valid=bool(self.lease.id()) and self.lease.pending[2]==self.controller.action_stamp(self.lease.pending[3])
         if not valid: self.lease.cancel()
         return self.runtime.render(state,self.now,bool(valid and self.lease.pending[3]=='select'),bool(valid))
@@ -203,6 +215,8 @@ class ColoPlaySimulator:
         self.win.bind('<KeyRelease-Shift_L>', self.release_shift)
         self.win.bind('<KeyRelease-Shift_R>', self.release_shift)
         self.win.bind('<Escape>',lambda e:self.abort())
+        self.win.bind('<KeyPress-u>',lambda e:self.update_chord(True))
+        self.win.bind('<KeyRelease-u>',lambda e:self.update_chord(False))
         for key, direction, horizontal in [('Up',-1,False), ('Down',1,False), ('Left',-1,True), ('Right',1,True)]:
             self.win.bind('<Shift-'+key+'>', lambda e,d=direction,h=horizontal:self.scroll_key(d,h))
         self.win.protocol('WM_DELETE_WINDOW',self.close)
@@ -218,6 +232,11 @@ class ColoPlaySimulator:
             # 自己发起的前台切换也会触发 FocusOut。只撤销按键／填入预约，
             # 不能把正在执行的窗口切换作废，否则成功回执和外框一起丢失。
             self.abort(cancel_navigation=not self.controller.cycling)
+
+    def update_chord(self,held):
+        self.mask=14 if held else 0
+        self.feed()
+        return 'break'
 
     def feed(self): self.session.feed(self.mask)
 
@@ -339,7 +358,7 @@ class ColoPlaySimulator:
             text(265,574,'重新进入',11,'#001b08')
         else:
             text(265,581,'Shift＋旋转预选 · 松开 Shift 选定目标',10,green)
-        text(265,610,'Shift＋短按旋钮：发送目标已有内容 · 转动取消',9,muted)
+        text(265,610,'Shift＋短按旋钮：发送已有内容 · 按住 U：三键更新演示',9,muted)
 
     def tick(self):
         if self.closed:return

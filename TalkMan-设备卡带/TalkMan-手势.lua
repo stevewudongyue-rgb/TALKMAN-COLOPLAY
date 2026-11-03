@@ -36,7 +36,7 @@ function TMGesture(config)
      emit(self.cancelled and 'cancel_arm' or self.send_combo and 'arm_send_current' or 'arm_knob')
     end
     if self.knob and not self.cancelled and
-       ((down(3) and not self.send_combo) or (self.send_combo and (not down(3) or now-self.knob>=config.fill_ms))) then
+       ((down(3) and not self.send_combo) or (self.send_combo and (not down(3) or now-self.knob>=800))) then
      self.cancelled=true;emit('cancel_arm')
     end
     if rise(config.left) or rise(config.right) then

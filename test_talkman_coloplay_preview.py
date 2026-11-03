@@ -66,7 +66,7 @@ class SimulatorTests(DesktopTests):
         with patch.object(a,'fill_to_target') as fill:
             self.step(16,100)
             self.step(24,200)
-            self.step(26,300)
+            self.step(26,300);self.step(26,480)
             self.assertEqual(a.current_text(),'')
             self.step(26,1500);self.step(0,1600)
             fill.assert_not_called()
@@ -89,7 +89,7 @@ class SimulatorTests(DesktopTests):
         self.device.open_simulator();sim=self.device.simulator
         try:
             sim.press(SimpleNamespace(x=440,y=145,state=1))
-            sim.release()
+            sim.release();sim.session.feed(0,sim.session.now+180)
             self.assertEqual(a.current_text(),'')
             a.undo();self.assertEqual(a.current_text(),'有选区也应清空全部')
         finally:
@@ -97,21 +97,21 @@ class SimulatorTests(DesktopTests):
 
     def test_sim_combination_preserves_selection_and_cancel(self):
         a=self.app;a.set_text('把苹果拿过来');a.text.tag_add('sel','1.1','1.3')
-        self.step(8,100);self.step(12,200)
+        self.step(8,100);self.step(12,200);self.step(12,380)
         self.assertEqual(a.voice_mode,'rewrite')
         self.assertEqual(a.get_selection()[2],'苹果')
         FakeVoice.sessions[-1].emit('ready','');a.poll_events();a.after_cancel(a.poll_job);a.poll_job=None
-        self.step(8,300);self.step(0,350);self.step(2,400)
+        self.step(8,400);self.step(0,450);self.step(2,500);self.step(2,680)
         self.assertIsNone(a.voice);self.assertEqual(a.current_text(),'把苹果拿过来')
 
     def test_device_recording_continues_when_target_takes_focus(self):
         a=self.app;a.set_text('当前正文')
-        self.step(4,100);self.step(0,200)
+        self.step(4,100);self.step(0,280)
         FakeVoice.sessions[-1].emit('ready','');a.poll_events();a.after_cancel(a.poll_job);a.poll_job=None
         with patch.object(a,'focus_displayof',return_value=None):a.check_focus()
         self.assertFalse(a.voice_stopping)
         self.assertIsNotNone(a.voice)
-        self.step(4,300);self.step(0,400)
+        self.step(4,400);self.step(0,580)
         self.assertTrue(a.voice_stopping)
 
     def test_rotation_view_tracks_confirmed_target_timeout_and_error(self):
@@ -272,7 +272,7 @@ class SimulatorTests(DesktopTests):
             sim.press(e(440,440));sim.release()
             self.assertEqual(sim.mask,0)
             execute.assert_not_called(); execute.reset_mock()
-            sim.press(SimpleNamespace(x=80,y=440,state=1));sim.release()
+            sim.press(SimpleNamespace(x=80,y=440,state=1));sim.release();sim.session.feed(0,sim.session.now+180)
             execute.assert_called_once_with('rewrite');self.assertEqual(sim.mask,0)
             execute.reset_mock()
             sim.press(e(410,290));sim.drag(e(365,395))
@@ -316,7 +316,11 @@ class SimulatorTests(DesktopTests):
         self.device.local_session=None
         with patch('talkman_coloplay_usb.UsbWire',return_value=wire):
             bridge=UsbBridge(self.device)
+        clock=[time.monotonic()]
+        timer=patch('talkman_coloplay_usb.time.monotonic',side_effect=lambda:clock[0]);timer.start();self.addCleanup(timer.stop)
+        bridge.session.clock=lambda:clock[0]
         def packet(mask,stamp=None,kind='buttons',delay=0):
+            clock[0]+=0.2
             wire.events.put((kind,dict(mask=mask,stamp=self.device.stamp() if stamp is None else stamp),time.monotonic()-delay))
             bridge.poll()
         try:

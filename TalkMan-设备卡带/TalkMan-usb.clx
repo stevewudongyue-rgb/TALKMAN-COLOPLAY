@@ -7,14 +7,16 @@ desc:纯 USB 桌面控制器，无需 Wi-Fi，初代 240×240
 
 __lua__
 #include TalkMan-连接配置.lua
+#include TalkMan-版本.lua
 #include TalkMan-手势.lua
+#include TalkMan-更新组合.lua
 #include TalkMan-屏幕.lua
 local json=require('cjson_safe')
 local seq=0
 local last=-999
 local oldmask=-1
 local exited=false
-local gesture=TMGesture(TM_CONFIG)
+local gesture=TMUpdateControls(TM_CONFIG)
 local function now() return stat(12) end
 local function send(mask,leave)
  local frame=-1
@@ -24,7 +26,7 @@ local function send(mask,leave)
  end
  seq=seq+1
  svcreq('ex','usb:tx:TMCP1 '..json.encode({v=1,token=TM_CONFIG.token,
-  config=TM_CONFIG.config,seq=seq,mask=mask,frame=frame,exit=leave==true})..'\n')
+  config=TM_CONFIG.config,seq=seq,mask=mask,frame=frame,exit=leave==true,device_build=TM_DEVICE_BUILD})..'\n')
 end
 function _init() btnpcfg(255,0) end
 function _update()
@@ -44,12 +46,12 @@ function _draw()
   local w,h,id,sz,age=img_airinfo()
   if w==240 and h==240 and age<1500 and img_scrair() then return end
  end
- TMDraw({now=now(),ready=false,configured=false,buttons={},exit_ms=5000,
+ TMDraw({now=now(),ready=false,configured=false,buttons={},exit_ms=5000,device_build=TM_DEVICE_BUILD,
   connection_hint=img_scrair and '电脑连接 USB' or '请升级图流固件'})
 end
 function _idle_update()
- exited=false;gesture=TMGesture(TM_CONFIG);oldmask=-1;last=-999
+ exited=false;gesture=TMUpdateControls(TM_CONFIG);oldmask=-1;last=-999
 end
 function _idle_draw()
- TMDraw({now=now(),ready=false,buttons={},exit_ms=5000,inactive=true})
+ TMDraw({now=now(),ready=false,buttons={},exit_ms=5000,inactive=true,device_build=TM_DEVICE_BUILD})
 end
