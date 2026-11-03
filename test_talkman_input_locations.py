@@ -146,6 +146,8 @@ class TransactionTests(unittest.TestCase):
         self.c.close()
         restored = TargetController(Path(self.temp.name), backend=self.backend)
         try:
+            with self.assertRaisesRegex(TargetError, '请重新确认输入位置'):
+                _ = restored.selected_input
             self.assertEqual(self.result(restored.fill_with_receipt, '不得恢复默认框')[0], 'error')
         finally:
             restored.close()

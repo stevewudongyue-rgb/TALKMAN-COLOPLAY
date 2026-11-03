@@ -23,6 +23,7 @@ class InputLocationControllerMixin:
 
     @property
     def selected_input(self):
+        from talkman_target import TargetError
         with self._lock:
             chosen = getattr(self, '_chosen_input', None)
             if not chosen and self.selection.metadata.get('input_required'):
