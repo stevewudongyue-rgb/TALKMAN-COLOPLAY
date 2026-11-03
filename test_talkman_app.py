@@ -2,6 +2,7 @@
 import tempfile
 import gc
 import json
+import sys
 import tkinter as tk
 import unittest
 from types import SimpleNamespace
@@ -106,6 +107,25 @@ class EditorTests(unittest.TestCase):
         saved = Path(self.temp.name, 'interface.json').read_text(encoding='utf-8')
         self.assertEqual(json.loads(saved)['ui_scale'], 1.5)
         self.assertEqual(json.loads(saved)['edge_hide'], self.app.edge_hide_var.get())
+
+    @unittest.skipUnless(sys.platform == 'darwin', 'Mac 窗口层级')
+    def test_pinned_main_window_opens_and_closes_settings(self):
+        app = self.app
+        app.deiconify()
+        app.topmost_var.set(True)
+        app.window_controller.apply_preferences()
+        app.update()
+        for page in ('window', 'controls', 'mac'):
+            app.open_settings(page)
+            app.update()
+            win = app.settings_window
+            self.assertTrue(win.winfo_viewable())
+            self.assertFalse(app.tk.getboolean(app.attributes('-topmost')))
+            self.assertTrue(app.tk.getboolean(win.attributes('-topmost')))
+            self.assertEqual(app.settings_notebook.select(), str(app.settings_tabs[page]))
+            app._close_settings(win)
+            app.update()
+            self.assertTrue(app.tk.getboolean(app.attributes('-topmost')))
 
     def emit(self,kind,value):
         FakeVoice.sessions[-1].emit(kind,value)

@@ -321,9 +321,11 @@ class DesktopWindowController:
                     or getattr(self.app, 'convention_panel', None))
 
     def apply_preferences(self):
-        self.app.attributes('-topmost', self.app.topmost_var.get() or self.compact)
         settings = getattr(self.app, 'settings_window', None)
-        if settings and settings.winfo_exists():
+        settings_open = bool(settings and settings.winfo_exists())
+        self.app.attributes('-topmost', (self.app.topmost_var.get() or self.compact)
+                            and not (sys.platform == 'darwin' and settings_open))
+        if settings_open:
             self.app._raise_settings_window(settings)
         self.app.pin_button.configure(text='已置顶 ▾' if self.app.topmost_var.get() else '置顶 ▾')
         if not self.app.edge_hide_var.get():

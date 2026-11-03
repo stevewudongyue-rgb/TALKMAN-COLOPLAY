@@ -68,8 +68,8 @@ class SettingsPanelMixin:
         win.configure(bg=self.palette["bg"])
         win.geometry("700x700")
         win.minsize(650, 520)
-        win.transient(self)
-        self._raise_settings_window(win)
+        if sys.platform != "darwin":
+            win.transient(self)
 
         shell = ttk.Frame(win, padding=(24, 20, 24, 20))
         shell.pack(fill="both", expand=True)
@@ -129,13 +129,22 @@ class SettingsPanelMixin:
         win.bind("<Destroy>", lambda event: self._cancel_settings_resize(win) if event.widget == win else None, add=True)
         win.bind('<Configure>', lambda event: self._queue_settings_resize(win) if event.widget == win else None, add=True)
         self._fit_settings_window(win)
-        win.after_idle(lambda: self._raise_settings_window(win) if win.winfo_exists() else None)
+        self._raise_settings_window(win)
         win.protocol("WM_DELETE_WINDOW", lambda: self._close_settings(win))
 
     def _raise_settings_window(self, win):
         if win.winfo_exists():
-            win.attributes('-topmost', self.tk.getboolean(self.attributes('-topmost')))
-            win.lift(self)
+            if sys.platform == 'darwin':
+                # A pinned Tk root can cover its transient child on macOS.
+                pinned = self.topmost_var.get() or self.window_controller.compact
+                self.attributes('-topmost', False)
+                win.attributes('-topmost', pinned)
+                win.lift()
+                win.focus_set()
+            else:
+                pinned = self.tk.getboolean(self.attributes('-topmost'))
+                win.attributes('-topmost', pinned)
+                win.lift(self)
 
     def _show_version_record(self):
         existing=getattr(self,'version_window',None)
@@ -320,6 +329,8 @@ class SettingsPanelMixin:
     def _close_settings(self, win):
         self._cancel_settings_resize(win)
         win.destroy()
+        if sys.platform == 'darwin' and not self.closing:
+            self.attributes('-topmost', self.topmost_var.get() or self.window_controller.compact)
         if hasattr(self, 'window_controller'):
             self.window_controller.sync_hotkeys()
         if not self.closing:
