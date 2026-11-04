@@ -154,9 +154,9 @@ function TMDraw(m)
   line(120+math.cos(a)*r,120+math.sin(a)*r,120+math.cos(a)*112,120+math.sin(a)*112,C.edge)
  end
  wordmark()
- if m.device_build then text('卡带'..tostring(m.device_build),120,35,70,C.off,12) end
  if m.update_hold or (m.update_phase and m.update_phase~='idle') then
   if m.update_hold and (not m.update_phase or m.update_phase=='idle') then
+   if m.device_build then text('卡带'..tostring(m.device_build),120,35,70,C.off,12) end
    local progress=math.min(1,(m.now-m.update_hold)/5000)
    progress_ring(progress,C.ink)
    text('更新卡带',120,84,180,C.text,20,true)

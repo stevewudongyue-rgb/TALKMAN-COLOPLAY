@@ -13,6 +13,7 @@ from unittest.mock import Mock, patch
 from lupa.lua54 import LuaRuntime, lua_type
 from talkman_coloplay_preview import DeviceRuntime
 from talkman_coloplay_update import CartridgeDownload
+from talkman_coloplay_cartridge import CARTRIDGE_BUILD
 
 ROOT=Path(__file__).parent/'TalkMan-设备卡带'
 
@@ -195,7 +196,7 @@ class DownloadTests(unittest.TestCase):
     def test_bundle_is_verified_and_http_is_expiring_and_path_limited(self):
         with tempfile.TemporaryDirectory() as tmp:
             p=Path(tmp);data=b'ROM fixture';(p/'TalkMan_update.rom').write_bytes(data)
-            meta=dict(build=61,size=len(data),sha1=hashlib.sha1(data).hexdigest(),sha256=hashlib.sha256(data).hexdigest())
+            meta=dict(build=CARTRIDGE_BUILD,size=len(data),sha1=hashlib.sha1(data).hexdigest(),sha256=hashlib.sha256(data).hexdigest())
             (p/'TalkMan-update.json').write_text(json.dumps(meta),'utf-8')
             d=CartridgeDownload('127.0.0.1',p)
             try:

@@ -45,12 +45,19 @@ class TimingTests(unittest.TestCase):
 
     def test_ring_and_hint_finish_at_same_time(self):
         r=self.runtime();r.step(16,100)
-        state=dict(ready=True,phase='idle',device_build=61)
+        state=dict(ready=True,phase='idle',device_build=CARTRIDGE_BUILD)
         r.render(state,599,pending=True,armed=True)
         self.assertIn('按住以填入',[v['text'] for v in r.text_layout])
         r.render(state,600,pending=True,armed=True)
         self.assertIn('松开填入',[v['text'] for v in r.text_layout])
-        self.assertIn('卡带61',[v['text'] for v in r.text_layout])
+        self.assertNotIn(f'卡带{CARTRIDGE_BUILD}',[v['text'] for v in r.text_layout])
+        r.step(0,650)
+        r.step(14,700)
+        r.render(state,1700)
+        self.assertIn(f'卡带{CARTRIDGE_BUILD}',[v['text'] for v in r.text_layout])
+        r.step(0,1800)
+        r.render(state,1800)
+        self.assertNotIn(f'卡带{CARTRIDGE_BUILD}',[v['text'] for v in r.text_layout])
 
 
 class VersionTests(unittest.TestCase):
@@ -68,9 +75,9 @@ class VersionTests(unittest.TestCase):
         self.assertIn('未连接',version_status(61))
         for value in (None,True,'61',-1,100001):
             self.assertIn('未报告',version_status(value,connected=True))
-        self.assertIn('可更新至 61',version_status(59,connected=True))
-        self.assertIn('与本包一致',version_status(61,connected=True))
-        self.assertIn('高于本包',version_status(62,connected=True))
+        self.assertIn(f'可更新至 {CARTRIDGE_BUILD}',version_status(59,connected=True))
+        self.assertIn('与本包一致',version_status(CARTRIDGE_BUILD,connected=True))
+        self.assertIn('高于本包',version_status(CARTRIDGE_BUILD+1,connected=True))
         self.assertIn('不代表实体',version_status(61,connected=True,simulator=True))
 
     def test_authenticated_wifi_hello_reports_build_and_old_rom_is_unknown(self):
@@ -112,7 +119,7 @@ class Desktop61Tests(unittest.TestCase):
         with patch.object(d,'phase',return_value=('recording','')):
             d.prepare_cartridge_update(dict(id='busy'))
             self.assertEqual(d.cartridge_offer['status'],'error')
-        d.device_build=61;d.prepare_cartridge_update(dict(id='current'))
+        d.device_build=CARTRIDGE_BUILD;d.prepare_cartridge_update(dict(id='current'))
         self.assertEqual(d.cartridge_offer['status'],'current')
         d.device_build=60
         download=Mock(offer=dict(build=61,size=10,sha1='a'*40,url='http://127.0.0.1'),expires=10**12)
