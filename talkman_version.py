@@ -1,12 +1,14 @@
 """版本信息唯一来源；设置、诊断与打包共用，不读取用户配置。"""
 PRODUCT_NAME = 'TALKMAN COLOPLAY'
 VERSION = '0.1.28'
-BUILD = 63
+BUILD = 64
 FULL_VERSION = f'{VERSION}.{BUILD}'
 RELEASE_DATE = '2026-11-04'
 DESKTOP_VERSION = '0.1.28.29'
 DESKTOP_COMMIT = 'db67aaf'
+DESKTOP_REVIEWED = '0.1.39／构建40（ce28601）'
 RELEASE_NOTES = (
+    ('0.1.28.64', '2026-11-04', '补同步 Desktop：AI 整理异常返回空内容时保留原文；主动填入时可恢复同一窗口内唯一可识别的失效主输入框，不迁移旧发送确认。Windows 核对进程创建时间；选择输入位置时主窗让开，独立导航条避开候选，确认或取消后恢复。沿用62卡带。'),
     ('0.1.28.63', '2026-11-04', '补同步 Desktop 0.1.34 的 Mac 设置窗口修复：禁止系统将设置并成主窗口标签页，设置完成布局后独立显示；切换设置页不改变外框，重开记住本次运行调整的尺寸，保留主编辑窗形状、正文和选区。沿用62卡带，无需更新ROM。'),
     ('0.1.28.62', '2026-11-04', '小屏移除常驻卡带版本，仅在右上＋右下＋左下三键更新倒计时内显示；设置仍可核对实际连接设备版本。先升级桌面，再通过 61 及以上 Wi-Fi 卡带的三键手势更新；更早版本及纯 USB 需手动安装对应电脑配对卡带。实体跨版本升级待实机验收。'),
     ('0.1.28.61', '2026-11-04', '小屏与设置显示卡带版本；长按旋钮填入改为 0.5 秒，仍松开才填入。Wi-Fi 卡带新增右上＋右下＋左下同时按住 5 秒更新电脑附带的卡带，提前松开取消，校验后切换并保留配对。首次需手动安装本机配对 61 卡带，纯 USB 仍手动更新；三键预留 180ms 识别，避免误触录音或清空。真实设备更新仍待用户验收。'),
@@ -45,7 +47,8 @@ RELEASE_NOTES = (
 def version_record():
     return (f'{PRODUCT_NAME}  {FULL_VERSION}\n'
             f'更新日期：{RELEASE_DATE}　构建号：{BUILD}\n'
-            f'已同步 Desktop：{DESKTOP_VERSION}（{DESKTOP_COMMIT}）\n\n' +
+            f'基础同步 Desktop：{DESKTOP_VERSION}（{DESKTOP_COMMIT}）\n'
+            f'最新核对 Desktop：{DESKTOP_REVIEWED}；后续按项同步，详见各构建记录\n\n' +
             '\n\n'.join(f'{v} · {date}\n{note}' for v, date, note in RELEASE_NOTES))
 
 

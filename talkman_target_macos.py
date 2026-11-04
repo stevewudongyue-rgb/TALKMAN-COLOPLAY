@@ -892,6 +892,23 @@ class MacTargetBackend:
             raise InputLocationError('所选输入区域已不可见，请重新选择输入位置。')
         return rect
 
+    @_with_native_pool
+    def input_position_role(self, target, handle):
+        from talkman_input_locations import main_input_role
+        element = handle[2]
+        return main_input_role(target, self._api.get(element, 'AXIdentifier', ''),
+            [self._api.get(element, key, '') for key in ('AXTitle', 'AXDescription', 'AXPlaceholderValue')])
+
+    @_with_native_pool
+    def resolve_main_input(self, target, role):
+        from talkman_target import InputLocationError
+        choices = [handle for handle, _ in self.list_inputs(target)
+                   if self.input_position_role(target, handle) == role]
+        if len(choices) != 1:
+            raise InputLocationError('当前对话的主输入框无法唯一确认，请重新选择输入位置。')
+        self.inspect_input(target, choices[0])
+        return choices[0]
+
     def bind_input(self, target, handle):
         self._bound_input = handle
         if handle is not None:

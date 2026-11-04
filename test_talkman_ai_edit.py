@@ -48,6 +48,7 @@ class AIReviewTests(unittest.TestCase):
         a = self.app
         a.set_text('请把苹果拿过来。')
         a.text.tag_add('sel', '1.2', '1.4')
+        a.cancel_auto_timer()
         a.organize_once() if kind == 'ai_once' else a.apply_auto()
         self.before_review_timeline = (a.timeline.items[:], a.timeline.index)
         event, token, _ = a.run_worker.call_args.args
@@ -55,6 +56,40 @@ class AIReviewTests(unittest.TestCase):
         a.events.put((event, token, 'ok', value))
         self.pump()
         return a
+
+    def test_empty_organize_result_preserves_document_and_stops_auto_retry(self):
+        a = self.app
+        for kind in ('ai_once', 'auto'):
+            for preview in (False, True):
+                for value in ('', ' \n\t　'):
+                    with self.subTest(kind=kind, preview=preview, value=value):
+                        a.preview_ai_var.set(preview)
+                        self.result(kind, value)
+                        self.assertEqual(a.current_text(), '请把苹果拿过来。')
+                        self.assertEqual(a.get_selection()[2], '苹果')
+                        self.assertEqual((a.timeline.items, a.timeline.index), self.before_review_timeline)
+                        self.assertIsNone(a.ai_review)
+                        self.assertFalse(a.auto_running)
+                        self.assertFalse(a.one_filler_button.instate(['disabled']))
+                        self.assertIn('整理结果为空，已保留原文', a.status_var.get())
+                        self.assertEqual(a.auto_block_revision, a.revision)
+                        a.schedule_auto()
+                        self.assertIsNone(a.auto_job)
+
+    def test_explicit_voice_deletion_still_works_without_preview(self):
+        a = self.app
+        a.preview_ai_var.set(False)
+        a.set_text('请把苹果拿过来。')
+        a.text.tag_add('sel', '1.0', 'end-1c')
+        self.assertTrue(a.start_voice('rewrite'))
+        FakeVoice.sessions[-1].emit('done', '删除选中的整段文字')
+        self.pump()
+        kind, token, _ = a.run_worker.call_args.args
+        a.events.put((kind, token, 'ok', ''))
+        self.pump()
+        self.assertEqual(a.current_text(), '')
+        a.undo()
+        self.assertEqual(a.current_text(), '请把苹果拿过来。')
 
     def test_changing_options_releases_once_button_and_rejects_stale_result(self):
         a = self.app

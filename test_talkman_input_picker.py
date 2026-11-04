@@ -148,22 +148,53 @@ class PickerTests(unittest.TestCase):
         self.assertTrue(display_matches(old,new,64))
         self.assertFalse(display_matches(old,new,16))
 
-    def test_panel_is_in_main_window_and_fits_compact_and_full(self):
-        self.begin_device()
+    def test_picker_yields_main_and_restores_geometry_selection_and_topmost(self):
         a,p=self.app,self.picker
         for compact in (False,True):
             a.set_compact_layout(compact)
             a.minsize(480,330) if compact else a.minsize(900,640)
             a.geometry('480x330' if compact else '1000x700')
-            a.update_idletasks();p.reposition();a.update_idletasks()
-            self.assertIs(p.panel.winfo_toplevel(),a)
-            self.assertGreaterEqual(p.panel.winfo_x(),0)
-            self.assertGreaterEqual(p.panel.winfo_y(),0)
-            self.assertLessEqual(p.panel.winfo_x()+p.panel.winfo_width(),a.winfo_width())
-            self.assertLessEqual(p.panel.winfo_y()+p.panel.winfo_height(),a.winfo_height())
-            record = a.compact_record if compact else a.replace_button
-            record_y = record.winfo_rooty()-a.winfo_rooty()
-            self.assertLessEqual(p.panel.winfo_y()+p.panel.winfo_height(), record_y)
+            a.set_text('保留正文和选区')
+            a.text.tag_add('sel','1.2','1.4')
+            a.attributes('-topmost',True);a.update()
+            before=(a.geometry(),a.get_selection(),a.current_text(),a.timeline.items[:],a.timeline.index)
+            p.begin(self.backend.windows[1]);self.pump(lambda:bool(p.regions))
+            self.assertEqual(a.state(),'withdrawn')
+            self.assertFalse(a.attributes('-topmost'))
+            self.assertIs(p.panel.winfo_toplevel(),p.window)
+            self.assertTrue(p.window.winfo_viewable())
+            a.schedule_auto()
+            self.assertIsNone(a.auto_job)
+            a.window_controller.reveal(focus=True)
+            a.window_controller.apply_preferences()
+            self.assertEqual(a.state(),'withdrawn')
+            self.assertFalse(a.attributes('-topmost'))
+            p.cancel();a.update()
+            self.assertTrue(a.attributes('-topmost'))
+            self.assertEqual((a.geometry(),a.get_selection(),a.current_text(),a.timeline.items[:],a.timeline.index),before)
+
+    def test_navigation_hotkey_and_voice_remain_on_picker(self):
+        self.begin_device();a=self.app
+        a.window_controller.trigger('global_rewrite')
+        a.update()
+        self.assertTrue(a.busy)
+        self.assertEqual(a.state(),'withdrawn')
+        a.finish_voice('选择第二个输入框')
+        self.assertEqual(self.picker.index,1)
+        self.assertEqual(a.state(),'withdrawn')
+        a.run_worker.assert_not_called()
+
+    def test_navigation_bar_moves_away_from_selected_region(self):
+        from talkman_window import Rect
+        from talkman_input_locations import InputRegion
+        self.begin_device()
+        native=unittest.mock.Mock()
+        native.bounds.return_value=Rect(16,24,440,200)
+        native.screens.return_value=[Rect(0,0,1920,1080)]
+        with patch('talkman_input_picker.WindowPlatform',return_value=native):
+            self.picker.avoid_region(InputRegion(1,(20,40,200,80)))
+        x,y=native.move_to.call_args.args
+        self.assertEqual(Rect(x,y,440,200).overlap(Rect(20,40,200,80)),0)
 
 
 class ScreenTests(unittest.TestCase):

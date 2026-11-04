@@ -296,6 +296,13 @@ class AIEditMixin:
                 self.button_feedback(self.one_filler_button, '未完成')
             self.window_controller.voice_failed()
             return
+        if base.strip() and not result.strip():
+            # 整理不能把全文意外清空；明确的语音删除走独立指令路径。
+            self.auto_block_revision = self.revision
+            self.status_var.set('整理结果为空，已保留原文；如需删除，请使用清空或删除按键。')
+            self.button_feedback(self.one_filler_button, '已保留')
+            self.window_controller.voice_failed()
+            return
         if result == base:
             self.auto_block_revision = self.revision
             self.status_var.set('AI 已检查，当前文字无需调整')
@@ -312,6 +319,7 @@ class AIEditMixin:
         self.cancel_auto_timer()
         if (self.ai_enabled() and not self.busy and self.ai_review is None
                 and not self.history_open and self.convention_panel is None and not self._editor_selecting
+                and not getattr(getattr(self, 'input_picker', None), 'active', False)
                 and not self.get_selection() and not self.target_filling and not self.closing
                 and self.conventions.language == 'off'
                 and not self.auto_running and self.revision != self.auto_block_revision):

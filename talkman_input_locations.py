@@ -3,6 +3,25 @@ from dataclasses import dataclass
 import uuid
 
 
+def main_input_role(target, identifier, labels):
+    """只恢复用户已确认的、具有明确聊天语义的主框。"""
+    from talkman_target import is_agent_window
+    if not is_agent_window(target):
+        return None
+    identifier = str(identifier or '').strip().casefold()
+    if identifier == 'prompt-textarea':
+        return ('id', identifier)
+    known = {'message chatgpt', 'message claude', 'message deepseek', 'message kimi',
+             'message copilot', '发送消息', '发消息', '输入消息', '消息输入框',
+             '给豆包发送消息', '与豆包聊天', '向 deepseek 发送消息', '随便问，尽管聊',
+             'work with codex', 'work with chatgpt'}
+    for label in labels:
+        value = str(label or '').strip().rstrip('…。.').casefold()
+        if value in known:
+            return ('label', value)
+    return None
+
+
 @dataclass(frozen=True)
 class InputRegion:
     number: int
@@ -59,12 +78,47 @@ class InputLocationControllerMixin:
         with self._lock:
             chosen = getattr(self, '_chosen_input', None)
         bind = getattr(self.backend, 'bind_input', None)
-        if chosen and chosen[0].session_key() != target.session_key():
+        if chosen and (chosen[0].session_key() != target.session_key()
+                       or chosen[0].identity != target.identity
+                       or chosen[0].process_started != target.process_started):
             raise TargetError('已选输入位置所属窗口已变化，请重新选择位置。')
         if chosen and not callable(bind):
             raise TargetError('当前系统不支持指定输入位置，请重新选择。')
         if callable(bind):
             bind(target, chosen[2] if chosen else None)
+
+    def _recover_chosen_input(self, target, epoch):
+        """只在主动填入、原框失效时恢复；监测、同步和二次发送不调用。"""
+        from talkman_target import TargetError, InputLocationError
+        with self._lock:
+            chosen = getattr(self, '_chosen_input', None)
+            role = getattr(self, '_chosen_input_role', None)
+        try:
+            self._bind_chosen_input(target)
+            return False
+        except TargetError:
+            resolver = getattr(self.backend, 'resolve_main_input', None)
+            if not chosen or not role or not callable(resolver):
+                raise
+            original = chosen[0]
+            if (not original.process_started or original.session_key() != target.session_key()
+                    or original.identity != target.identity
+                    or original.process_started != target.process_started):
+                raise InputLocationError('目标窗口会话已变化，请重新选择输入位置。')
+        handle = resolver(target, role)
+        rect = self.backend.inspect_input(target, handle)
+        if not valid_rect(rect):
+            raise InputLocationError('主输入框位置不可见，请重新选择输入位置。')
+        # 重建后的控件不继承用户为旧框手动勾选的发送权限，只沿用可识别主框。
+        enabled = chosen[1].enter_send and self._input_send_default(target, handle)
+        with self._lock:
+            if (epoch != self._sync_epoch or self._chosen_input is not chosen
+                    or self._input_selecting or self._stop.is_set()):
+                raise TargetError('目标已切换，本次未填入。')
+            self._chosen_input = (target, InputRegion(chosen[1].number, tuple(rect), enabled), handle)
+            self._focus_token = None
+        self._bind_chosen_input(target)
+        return True
 
     def _input_command(self, command, callback, value):
         from talkman_target import TargetError
@@ -110,6 +164,8 @@ class InputLocationControllerMixin:
                 raise TargetError('输入区域已隐藏或移出可见范围，请重新选择。')
             enabled = self._input_send_default(target, handle) if enter_send is None else enter_send is True
             region = InputRegion(index + 1, tuple(rect), enabled)
+            role = (getattr(self.backend, 'input_position_role', lambda *_: None)(target, handle)
+                    if command == 'input_confirm' else None)
             with self._lock:
                 if generation != self._input_generation or self._input_draft is not draft:
                     return
@@ -117,6 +173,7 @@ class InputLocationControllerMixin:
                     # Keep both choices atomic, including the focus-memory reset.
                     self._selected = target
                     self._chosen_input = (target, region, handle)
+                    self._chosen_input_role = role
                     self._focus_token = None
                     self._pending_send = None
                     self._sync_epoch += 1

@@ -298,6 +298,7 @@ class TargetController(InputLocationControllerMixin):
         self._last_fill_report = "尚未尝试填入。"
         self._last_send_report = "尚未核验填入后的发送确认。"
         self._chosen_input = None
+        self._chosen_input_role = None
         self._input_selecting = False
         self._input_draft = None
         self._input_generation = 0
@@ -486,6 +487,7 @@ class TargetController(InputLocationControllerMixin):
         with self._lock:
             self.cancel_inputs()
             self._chosen_input = None
+            self._chosen_input_role = None
             self._selected = target
             self._sync_epoch += 1
             self._focus_token = None
@@ -497,6 +499,7 @@ class TargetController(InputLocationControllerMixin):
         with self._lock:
             self.cancel_inputs()
             self._chosen_input = None
+            self._chosen_input_role = None
             self._selected = None
             self._sync_epoch += 1
             self._focus_token = None
@@ -892,6 +895,8 @@ class TargetController(InputLocationControllerMixin):
                         # 验证后的标题可能比列表旧标题新；保存本次真实窗口快照。
                         self._selected = target
             stage = "检查目标焦点"
+            if self._recover_chosen_input(target, epoch):
+                token = None
             focus = self._capture_focus(target)
             if focus is False:
                 raise TargetError("目标输入框已失去焦点，请重新点击目标输入框后再试。")

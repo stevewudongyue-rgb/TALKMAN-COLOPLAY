@@ -324,7 +324,8 @@ class DesktopWindowController:
         settings = getattr(self.app, 'settings_window', None)
         settings_open = bool(settings and settings.winfo_exists())
         self.app.attributes('-topmost', (self.app.topmost_var.get() or self.compact)
-                            and not (sys.platform == 'darwin' and settings_open))
+                            and not (sys.platform == 'darwin' and settings_open)
+                            and not getattr(getattr(self.app, 'input_picker', None), 'active', False))
         if settings_open:
             self.app._raise_settings_window(settings)
         self.app.pin_button.configure(text='已置顶 ▾' if self.app.topmost_var.get() else '置顶 ▾')
@@ -462,6 +463,8 @@ class DesktopWindowController:
 
     def _layout_tick(self):
         a, now = self.app, self.clock()
+        if getattr(getattr(a, 'input_picker', None), 'active', False):
+            return
         if getattr(getattr(a, 'coloplay', None), 'hidden', False):
             return
         if self.compact:
@@ -714,6 +717,11 @@ class DesktopWindowController:
         self.reveal(focus=True, full=False)
 
     def reveal(self, focus=False, full=True, auto=False):
+        picker = getattr(self.app, 'input_picker', None)
+        if picker and picker.active:
+            if focus:
+                picker.focus()
+            return
         device = getattr(self.app, 'coloplay', None)
         if device:
             device.hidden = False
@@ -780,7 +788,10 @@ class DesktopWindowController:
             self.reveal(focus=True)
             return
         self.temporary = self.hidden or self.temporary
-        if self.hidden or self.compact:
+        picker = getattr(self.app, 'input_picker', None)
+        if picker and picker.active:
+            picker.focus()
+        elif self.hidden or self.compact:
             self.reveal_compact()
         else:
             self.reveal(focus=True, auto=True)
@@ -797,7 +808,10 @@ class DesktopWindowController:
                 return
             if gesture and gesture['released'] and gesture.get('stop_on_release'):
                 return
-            a.text.focus_force()
+            if picker and picker.active:
+                picker.focus()
+            else:
+                a.text.focus_force()
             if a.start_voice(mode):
                 if gesture is not None:
                     gesture['token'] = a.operation_id

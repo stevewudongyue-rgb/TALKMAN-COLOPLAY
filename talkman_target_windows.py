@@ -112,6 +112,26 @@ def _process_path(pid: int) -> str:
         kernel.CloseHandle(handle)
 
 
+def _process_started(pid: int) -> str:
+    """创建时间用于识别 PID／窗口句柄复用，不持久化原生控件。"""
+    if os.name != 'nt':
+        return ''
+    kernel = _kernel_api()
+    handle = kernel.OpenProcess(0x1000, False, pid)
+    if not handle:
+        return ''
+    try:
+        fn = kernel.GetProcessTimes
+        fn.argtypes = [wt.HANDLE] + [ctypes.POINTER(wt.FILETIME)] * 4
+        fn.restype = wt.BOOL
+        times = [wt.FILETIME() for _ in range(4)]
+        if fn(handle, *(ctypes.byref(value) for value in times)):
+            return str((times[0].dwHighDateTime << 32) | times[0].dwLowDateTime)
+        return ''
+    finally:
+        kernel.CloseHandle(handle)
+
+
 @contextmanager
 def _physical_screen_coordinates():
     """UIA 也会随调用线程虚拟化坐标，读取时须与原生高亮使用同一物理坐标系。"""
@@ -217,7 +237,7 @@ class WindowsTargetBackend:
             app = os.path.basename(path) or "未知应用"
             if app.casefold() in self._excluded_apps:
                 return True
-            result.append(TargetWindow(int(hwnd), int(pid.value), app, title, path))
+            result.append(TargetWindow(int(hwnd), int(pid.value), app, title, path, _process_started(int(pid.value))))
             return True
 
         user32.EnumWindows(callback, 0)
@@ -243,9 +263,11 @@ class WindowsTargetBackend:
         path = _process_path(int(pid.value))
         if window.process_path and path.casefold() != window.process_path.casefold():
             return None
-        # HWND + PID 已经唯一标识本次窗口会话；Agent/浏览器常会在输入后
-        # 动态修改标题，不能因为标题变化就把仍然可用的目标判为失效。
-        return TargetWindow(hwnd, int(pid.value), window.app, title, path, window.process_started)
+        started = _process_started(int(pid.value))
+        if window.process_started and started != window.process_started:
+            return None
+        # 标题允许变化；进程创建时间防止 PID／窗口句柄复用。
+        return TargetWindow(hwnd, int(pid.value), window.app, title, path, started)
 
     def _window_element(self, window: TargetWindow) -> Any:
         uia = self._ensure_uia()
@@ -413,6 +435,21 @@ class WindowsTargetBackend:
         if not valid_rect(rect):
             raise InputLocationError('所选输入区域已不可见，请重新选择输入位置。')
         return rect
+
+    def input_position_role(self, window, handle):
+        from talkman_input_locations import main_input_role
+        element = handle[4]
+        return main_input_role(window, self._current(element, 'CurrentAutomationId', ''),
+                               [self._current(element, 'CurrentName', '')])
+
+    def resolve_main_input(self, window, role):
+        from talkman_target import InputLocationError
+        choices = [handle for handle, _ in self.list_inputs(window)
+                   if self.input_position_role(window, handle) == role]
+        if len(choices) != 1:
+            raise InputLocationError('当前对话的主输入框无法唯一确认，请重新选择输入位置。')
+        self.inspect_input(window, choices[0])
+        return choices[0]
 
     def bind_input(self, window, handle):
         self._bound_input = handle
