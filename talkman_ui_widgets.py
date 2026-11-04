@@ -75,7 +75,7 @@ class DotWordmark(tk.Canvas):
 
 
 class ColoPlayWordmark(DotWordmark):
-    """共用一个点阵网格的组合字标；中间的连接节点才使用信号色。"""
+    """完整 TALKMAN 字标与 COLOPLAY 圆屏四键符号；符号同时表示连接。"""
     def __init__(self, parent, **kw):
         self.connected = False
         super().__init__(parent, **kw)
@@ -91,10 +91,10 @@ class ColoPlayWordmark(DotWordmark):
         self.delete('all')
         height = max(self.winfo_height(), int(self.cget('height')))
         width = self.winfo_width() if self.winfo_width() > 1 else int(self.cget('width'))
-        step = min(3.8, (height-4)/7, (width-4)/97)
+        step = min(3.8, (height-4)/7, (width-4)/103)
         diameter = step*.68
         top = (height-(6*step+diameter))/2
-        for word, start in (('TALKMAN', 0), ('COLOPLAY', 50)):
+        for word, start in (('TALKMAN', 0), ('COLOPLAY', 56)):
             for index, letter in enumerate(word):
                 for row, bits in enumerate(self._GLYPHS[letter]):
                     for column, active in enumerate(bits):
@@ -102,11 +102,19 @@ class ColoPlayWordmark(DotWordmark):
                             x, y = 2+(start+index*6+column)*step, top+row*step
                             self.create_oval(x, y, x+diameter, y+diameter,
                                              fill=colors['accent'], outline='', tags=('dot', word))
-        # 同一条横向连接线将两侧字标合在一起；断开时为中性色。
+        # 与应用图标、iOS 共用圆屏＋四角按键轮廓；不把完整字标挤进图标。
+        # 断开时只改变符号色，设备状态仍由旁边的文字明确说明。
         tone = colors.get('signal', '#63e994') if self.connected else colors['muted']
-        for col, row in ((43,2),(43,3),(43,4),(44,3),(45,3),(46,2),(46,3),(46,4)):
-            x, y = 2+col*step, top+row*step
-            self.create_oval(x, y, x+diameter, y+diameter, fill=tone, outline='', tags='link')
+        size = min(height-2, step*10)
+        left, upper = 2+43*step, (height-size)/2
+        unit = size/100
+        self.create_oval(left+21*unit, upper+21*unit, left+79*unit, upper+79*unit,
+                         outline=tone, width=max(1, 4*unit), tags=('link', 'device'))
+        for x in (17, 74):
+            for y in (17, 74):
+                self.create_rectangle(left+x*unit, upper+y*unit,
+                                      left+(x+9)*unit, upper+(y+9)*unit,
+                                      fill=tone, outline='', tags=('link', 'device'))
 
 
 class MatrixStatus(tk.Canvas):
