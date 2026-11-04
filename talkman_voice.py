@@ -288,6 +288,8 @@ class VoiceSession:
         # No audio, transcript, credentials or service response is retained here.
         permission = {0: "等待首次授权", 1: "系统限制", 2: "未允许", 3: "已允许"}.get(
             self._permission, "未知" if sys.platform == "darwin" else "由系统管理")
+        if getattr(self, 'input_stream_factory', None):
+            permission = '由 COLOPLAY 主动录入，未打开电脑麦克风'
         peak = f"{20 * math.log10(self._peak / 32768):.1f} dBFS" if self._peak else "静音（全零）"
         self._emit("diagnostic", f"输入设备：{self._device_label}\n麦克风权限：{permission}\n"
                    f"音频格式：16000 Hz／单声道／PCM16\n收到帧数：{self._frames}（{self._frames / SAMPLE_RATE:.2f} 秒）\n"
@@ -327,6 +329,26 @@ class VoiceSession:
     def _open_microphone(self, sounddevice):
         stream = None
         self._phase = "打开麦克风"
+        factory = getattr(self, 'input_stream_factory', None)
+        if factory:
+            self._device_label = 'COLOPLAY USB 麦克风'
+            def failed(message):
+                self._audio_problem = message
+                self._stop.set()
+            try:
+                self._check_cancel()
+                stream = factory(self._capture, failed)
+                stream.start()
+                self._check_cancel()
+                if self._stop.is_set():
+                    raise _VoiceError(self._audio_problem or '设备录音已停止，请重新录入。')
+                return stream
+            except (_Cancelled, _VoiceError):
+                self._dispose_stream(stream)
+                raise
+            except Exception as error:
+                self._dispose_stream(stream)
+                raise _VoiceError(str(error) if isinstance(error, RuntimeError) else '无法启动 COLOPLAY 麦克风。') from None
         try:
             settings = {}
             if sys.platform == "darwin":

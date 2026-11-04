@@ -345,6 +345,36 @@ class SimulatorTests(DesktopTests):
             self.assertFalse(bridge.streaming)
         finally:bridge.close()
 
+    def test_usb_wake_takes_over_without_executing_stale_wifi_intent(self):
+        wire=Mock();wire.events=queue.Queue()
+        self.device.local_session=None
+        with patch('talkman_coloplay_usb.UsbWire',return_value=wire):
+            bridge=UsbBridge(self.device,quiet=True)
+        try:
+            self.device.intent.arm('wifi','fill',self.device.stamp(),'fill')
+            wire.events.put(('wake',None,time.monotonic()))
+            bridge.poll()
+            self.assertIs(self.device.local_session,bridge.session)
+            self.assertTrue(bridge.session.enabled)
+            self.assertIsNone(self.device.intent.pending)
+            self.assertTrue(bridge.streaming)
+        finally:bridge.close()
+
+    def test_automatic_usb_failure_does_not_reset_wifi_navigation(self):
+        wire=Mock();wire.events=queue.Queue()
+        self.device.local_session=None
+        with patch('talkman_coloplay_usb.UsbWire',return_value=wire):
+            bridge=UsbBridge(self.device,quiet=True)
+        try:
+            with patch.object(self.device,'cancel_navigation') as cancel:
+                wire.events.put(('error','USB 未就绪',time.monotonic()))
+                wire.events.put(('closed',None,time.monotonic()))
+                bridge.poll()
+                cancel.assert_not_called()
+                self.assertIsNone(self.device.local_session)
+                self.assertFalse(bridge.streaming)
+        finally:bridge.close()
+
     def test_usb_then_simulator_is_exclusive(self):
         self.device.local_session=None
         with patch('talkman_coloplay_usb.UsbWire') as wire:

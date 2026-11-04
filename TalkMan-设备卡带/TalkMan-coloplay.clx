@@ -17,6 +17,7 @@ usemod('net')
 #include TalkMan-更新组合.lua
 #include TalkMan-卡带更新.lua
 #include TalkMan-屏幕.lua
+#include TalkMan-USB通道.lua
 
 local json=require('cjson_safe')
 local cfg=TM_CONFIG
@@ -46,6 +47,8 @@ local message='请在电脑配对'
 local exit_started=0
 local usb_sn=0
 local function now() return stat(12) end
+local usb_transport=TMUsbTransport and TMUsbTransport(cfg)
+local was_usb=false
 local function live() return ws and state.ready and now()-received<2000 end
 local function enqueue(item)
  if #outgoing<8 then outgoing[#outgoing+1]=item end
@@ -84,12 +87,15 @@ end})
 
 local function network_loop()
  while true do
-  if not updater.switching and not exited and not exiting and (cfg.url~='' or cfg.discovery) then
+  if not (usb_transport and usb_transport.active) and not updater.switching and not exited and not exiting and (cfg.url~='' or cfg.discovery) then
    local url=cfg.url
    if cfg.discovery then url=discovery and discovery:take(now()) end
    message=url and '正在连接电脑' or '正在寻找电脑'
    local sock,err
    if url then sock,err=ws_connect(url,{timeout=3}) end
+   if sock and (exited or (usb_transport and usb_transport.active)) then
+    pcall(function() sock:close() end);sock=nil
+   end
    if sock then
     disconnect()
     ws=sock
@@ -98,7 +104,7 @@ local function network_loop()
     local ok=sock:send(json.encode({type='hello',version=1,token=cfg.token,config=cfg.config,
                                    heartbeat='state-ack',device_build=TM_DEVICE_BUILD}))
     local last_heartbeat=-999
-    while ok and not sock:isclosed() and not exited do
+    while ok and not sock:isclosed() and not exited and not (usb_transport and usb_transport.active) do
      if exiting then
       sock:send(json.encode({type='exit'}))
       exited=true; exiting=false; toidle(); break
@@ -169,6 +175,18 @@ function _update()
  if updater:busy() then return end
  if resumed then
   resumed=false; exited=false; exiting=false; gesture=TMUpdateControls(cfg)
+  if usb_transport then usb_transport:resume() end
+ end
+ if exited then return end
+ if usb_transport and usb_transport:step(now()) then
+  if not was_usb then
+   if ws then pcall(function() ws:close() end) end
+   ws=nil;disconnect();gesture=TMUpdateControls(cfg);was_usb=true
+  end
+  if usb_transport.exited then exited=true end
+  return
+ elseif was_usb then
+  was_usb=false;gesture=TMUpdateControls(cfg);modifier=false;turns=0;pending=nil;awaiting=nil
  end
  local buttons={}
  for i=0,7 do buttons[i]=btn(i) end
@@ -247,6 +265,7 @@ function _idle_update() resumed=true end
 
 -- 绘图独立于连接与手势，可在官方 VM 中验证所有状态。
 function _draw()
+ if usb_transport and usb_transport.active then usb_transport:draw();copas.step();return end
  if discovery then
   local ok=pcall(function() discovery:step(now(),ws~=nil) end)
   if not ok then discovery:close() end

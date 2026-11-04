@@ -282,6 +282,43 @@ class DesktopTests(unittest.TestCase):
         self.device.arm(dict(action='knob' if action=='fill' else action,id='test'))
         self.device.dispatch('coloplay_'+action)
 
+    def test_device_audio_source_is_persisted_and_does_not_request_computer_mic(self):
+        a=self.app
+        a.open_settings('asr');a.update_idletasks()
+        combo=a.audio_source_combobox
+        self.assertEqual(a.audio_source_var.get(),'computer')
+        combo.set('COLOPLAY 麦克风 · USB')
+        combo.event_generate('<<ComboboxSelected>>')
+        self.assertEqual(a.audio_source_var.get(),'coloplay')
+        self.assertEqual(json.loads(a.ui_path.read_text('utf-8'))['audio_source'],'coloplay')
+        with patch('talkman_app.prepare_microphone_permission') as permission:
+            self.assertFalse(a.start_voice('insert'))
+            permission.assert_not_called()
+            self.assertIsNone(a.voice)
+        bridge=Mock();bridge.wire.audio.available=True
+        a.coloplay.usb_bridge=bridge
+        try:
+            with patch('talkman_app.prepare_microphone_permission') as permission:
+                self.assertTrue(a.start_voice('insert'))
+                permission.assert_not_called()
+            self.assertIs(a.voice.input_stream_factory,bridge.wire.audio.create)
+            combo.set('电脑麦克风');combo.event_generate('<<ComboboxSelected>>')
+            self.assertEqual(a.audio_source_var.get(),'coloplay')
+        finally:
+            a.voice=None;a.coloplay.usb_bridge=None
+
+    def test_late_wifi_disconnect_does_not_cancel_usb_editor_state(self):
+        d=self.device
+        session=Mock(enabled=True,device_build=65)
+        d.local_session=session;d.peer='old-wifi'
+        d.events.put(('disconnected','old-wifi',None))
+        with patch.object(d,'cancel_navigation') as cancel:
+            d.tick();self.app.after_cancel(d.job);d.job=None
+            cancel.assert_not_called()
+        self.assertIs(d.local_session,session)
+        self.assertIsNone(d.peer)
+        d.local_session=None
+
     def test_settings_keep_same_wifi_session_and_pause_actions_only(self):
         a, d = self.app, self.device
         self.ready.stop()

@@ -129,7 +129,7 @@ class LocalDeviceSession:
             if action == 'update_hold':
                 self.lease.cancel();self.turns=0;c.cancel_navigation();c.cancel_device_send()
             elif action == 'cartridge_update':
-                self.update_feedback=('模拟器不安装卡带' if self.source=='simulator' else '纯 USB 请手动更新卡带')
+                self.update_feedback=('模拟器不安装卡带' if self.source=='simulator' else '请切换 Wi-Fi 备用后更新卡带')
                 self.update_until=self.now+5000
                 c.local_notice(self.update_feedback)
             elif action == 'exit':

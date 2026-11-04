@@ -18,6 +18,8 @@ jobs:
         with:
           python-version: '3.12'
           architecture: arm64
+      - name: 准备设备音频解码库
+        run: brew install opus
       - name: 构建 Apple 芯片测试 DMG
         env:
           MACOSX_DEPLOYMENT_TARGET: '14.0'

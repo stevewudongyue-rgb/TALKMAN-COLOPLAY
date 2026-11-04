@@ -70,6 +70,8 @@ class ColoPlayController:
         self.local_session = None
         self.simulator = None
         self.usb_bridge = None
+        self.usb_retry_at = 0
+        self.usb_paused = False
         self.notice = ''
         self.notice_until = 0
         self.badge = tk.StringVar(app, '○ 未连接')
@@ -678,7 +680,7 @@ class ColoPlayController:
                 self.stop_cartridge_download()
                 self.peer = peer
                 self.device_build = valid_build(value)
-                self.intent.cancel()
+                if not self.local_session:self.intent.cancel()
             elif kind == 'cartridge_ready':
                 identifier,download,error=value
                 if peer != self.peer or identifier != self.cartridge_request:
@@ -689,18 +691,28 @@ class ColoPlayController:
                     self.cartridge_offer=dict(download.offer,id=identifier,status='ready')
             elif peer == self.peer:
                 if kind in ('disconnected', 'exit'):
-                    if self.app.input_picker.active and self.app.input_picker.source == 'device':
+                    if not self.local_session and self.app.input_picker.active and self.app.input_picker.source == 'device':
                         self.app.input_picker.cancel()
                     self.peer = None
                     self.device_build = None
                     self.stop_cartridge_download()
-                    self.intent.cancel()
-                    self.cancel_navigation()
-                elif kind == 'intent': self.arm(value)
-                elif kind == 'cartridge_check': self.prepare_cartridge_update(value)
-                elif kind == 'cancel_intent':
+                    if not self.local_session:
+                        self.intent.cancel()
+                        self.cancel_navigation()
+                elif kind == 'intent' and not self.local_session: self.arm(value)
+                elif kind == 'cartridge_check' and not self.local_session: self.prepare_cartridge_update(value)
+                elif kind == 'cancel_intent' and not self.local_session:
                     self.intent.cancel(); self.cancel_navigation(); self.scroll.cancel()
-        if self.usb_bridge: self.usb_bridge.poll()
+        if self.usb_bridge:
+            self.usb_bridge.poll()
+            if not self.usb_bridge.streaming and not self.usb_bridge.exited:
+                self.usb_bridge.close();self.usb_bridge=None
+                self.usb_retry_at=time.monotonic()+3
+        if (not self.usb_bridge and not self.simulator and not self.usb_paused
+                and self.config.get('usb_auto', True) and self.app.window_controller.native_enabled
+                and time.monotonic()>=self.usb_retry_at and not self.app.busy):
+            self.usb_retry_at=time.monotonic()+3
+            self.connect_usb(automatic=True)
         if self.cartridge_download and time.monotonic() >= self.cartridge_download.expires:
             self.stop_cartridge_download()
         self.cartridge_status.set(version_status(self.cartridge_version(), connected=self.connected(),
@@ -724,7 +736,7 @@ class ColoPlayController:
         else:
             self.badge.set('● Wi-Fi 已连接 · 操作暂停' if self.connected() and paused else
                            '● Wi-Fi 已连接' if self.active else
-                           '○ 快捷键未就绪' if self.peer else '○ 未连接')
+                           '○ 快捷键未就绪' if self.peer else '○ USB 待连接')
         if not self.scroll.errors.empty(): self.local_notice(self.scroll.errors.get_nowait())
         self.app.wordmark.set_connected(self.connected())
         self.app.coloplay_status.configure(style='Connected.Device.Ghost.TButton' if self.connected() else 'Device.Ghost.TButton')
@@ -759,14 +771,16 @@ class ColoPlayController:
         self.intent.cancel()
         self.simulator=ColoPlaySimulator(self)
 
-    def connect_usb(self):
+    def connect_usb(self, *, automatic=False):
+        self.usb_paused=False
         if self.simulator:self.simulator.close()
         if self.usb_bridge:self.usb_bridge.close()
         from talkman_coloplay_usb import UsbBridge
-        self.intent.cancel()
-        self.usb_bridge=UsbBridge(self)
+        if not automatic:self.intent.cancel()
+        self.usb_bridge=UsbBridge(self, quiet=automatic)
 
     def disconnect_usb(self):
+        self.usb_paused=True
         if self.usb_bridge:self.usb_bridge.close();self.usb_bridge=None
 
     def export(self, destination):
@@ -799,7 +813,38 @@ class ColoPlayController:
         a.coloplay_window = win
         win.title('COLOPLAY · 设备设置')
         win.transient(a)
-        box = ttk.Frame(win, padding=24); box.pack(fill='both', expand=True)
+        outer = ttk.Frame(win, padding=24); outer.pack(fill='both', expand=True)
+        ttk.Label(outer,text='USB 主连接',style='SettingsField.TLabel').pack(anchor='w')
+        ttk.Label(outer,text='用一根数据线同步画面、按键和设备录音，不需要填写 IP。',style='Muted.TLabel').pack(anchor='w',pady=(4,10))
+        auto_usb=tk.BooleanVar(win,self.config.get('usb_auto',True))
+        def save_usb():
+            candidate={**self.config,'usb_auto':auto_usb.get()}
+            try:save_config(self.path,candidate)
+            except OSError:
+                auto_usb.set(self.config.get('usb_auto',True));return
+            self.config=candidate;self.usb_paused=not auto_usb.get()
+            if auto_usb.get():self.usb_retry_at=0
+        ttk.Checkbutton(outer,text='启动时自动连接 USB，拔插后重新连接',variable=auto_usb,command=save_usb).pack(anchor='w')
+        usb_actions=ttk.Frame(outer);usb_actions.pack(fill='x',pady=(10,4))
+        a.button(usb_actions,'连接 USB',self.connect_usb).pack(side='left')
+        a.button(usb_actions,'断开 USB',self.disconnect_usb,style='Ghost.TButton').pack(side='left',padx=6)
+        a.button(usb_actions,'设备模拟器',lambda:(close(),self.open_simulator()),style='Ghost.TButton').pack(side='left')
+        def export_usb():
+            folder=filedialog.askdirectory(parent=win,title='导出本机配对卡带源码')
+            if folder:
+                self.export(folder)
+                a.status_var.set('已导出本机配对源码；使用官方卡带工具编译后安装。配对配置请勿公开。')
+        a.button(outer,'首次配对 · 导出卡带源码',export_usb,style='Ghost.TButton').pack(anchor='w',pady=4)
+        ttk.Label(outer,textvariable=self.badge,style='Muted.TLabel').pack(anchor='w',pady=4)
+        ttk.Label(outer,text='录音来源在「设置 → 语音」选择。首次使用请安装本机配对的新版卡带。',style='Muted.TLabel').pack(anchor='w',pady=4)
+        box=ttk.Frame(outer)
+        def fold_wifi():
+            if box.winfo_manager():
+                box.pack_forget();wifi_toggle.configure(text='▸ Wi-Fi 备用连接与配对')
+            else:
+                box.pack(fill='both',expand=True,pady=(10,0));wifi_toggle.configure(text='▾ 收起 Wi-Fi 备用连接')
+        wifi_toggle=a.button(outer,'▸ Wi-Fi 备用连接与配对',fold_wifi,style='Ghost.TButton')
+        wifi_toggle.pack(anchor='w',pady=(12,0))
         enabled = tk.BooleanVar(win, self.config['enabled'])
         ttk.Checkbutton(box, text='启用 COLOPLAY 状态服务', variable=enabled).grid(row=0, columnspan=2, sticky='w')
         ttk.Label(box, text='新版卡带只需安装一次。换网络后选择电脑当前 IP 并保存，无需重编译。', style='Muted.TLabel').grid(row=1, columnspan=2, pady=(8,12))
@@ -848,6 +893,7 @@ class ColoPlayController:
         def save(export=False):
             try:
                 config = validate_config(dict(enabled=enabled.get(),host=fields['host'].get().strip(),
+                    usb_auto=self.config.get('usb_auto',True),
                     port=fields['port'].get(), token=self.config['token'],
                     discovery=discovery.get(),device_host=fields['device_host'].get(),
                     bindings={**self.config['bindings'], **{k:v.get() for k,v in values.items()}}, preferences=self.preferences))
@@ -869,14 +915,7 @@ class ColoPlayController:
         actions = ttk.Frame(box); actions.grid(row=9,columnspan=2,sticky='e')
         a.button(actions,'保存',save).pack(side='left',padx=4)
         a.button(actions,'首次配对 · 导出源码',lambda:save(True)).pack(side='left')
-        usb_actions=ttk.Frame(box);usb_actions.grid(row=10,columnspan=2,pady=(16,0),sticky='w')
-        a.button(usb_actions,'连接纯 USB',self.connect_usb).pack(side='left')
-        a.button(usb_actions,'断开 USB',self.disconnect_usb,style='Ghost.TButton').pack(side='left',padx=6)
-        def preview_from_settings():
-            close()
-            self.open_simulator()
-        a.button(usb_actions,'打开设备模拟器',preview_from_settings,style='Ghost.TButton').pack(side='left')
-        ttk.Label(box,text='纯 USB 需支持图流的固件。连接后关闭本设置窗口即可操作。',style='Muted.TLabel').grid(row=11,columnspan=2,pady=(8,0),sticky='w')
+        ttk.Label(box,text='USB 就绪时优先使用 USB；停止 USB 后，同一卡带可使用已配置的 Wi-Fi。',style='Muted.TLabel').grid(row=11,columnspan=2,pady=(8,0),sticky='w')
         ttk.Label(box,textvariable=a.status_var,wraplength=500,style='Muted.TLabel').grid(row=12,columnspan=2,pady=8,sticky='w')
         def close():
             win.destroy(); a.coloplay_window=None; a.window_controller.sync_hotkeys()

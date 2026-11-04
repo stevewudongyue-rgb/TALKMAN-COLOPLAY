@@ -32,7 +32,8 @@ SOURCE_FILES = ("talkman_coloplay_guide_preview.py", "talkman_coloplay_guide.py"
                 "talkman_conventions.py", "talkman_conventions_ui.py", "talkman_convention_learning.py",
                 "talkman_delivery_ui.py", "talkman_translation.py", "talkman_translation_ui.py",
                 "talkman_coloplay.py", "talkman_coloplay_protocol.py", "talkman_coloplay_server.py", "talkman_coloplay_discovery.py",
-                "talkman_coloplay_highlight.py", "talkman_coloplay_preview.py", "talkman_coloplay_usb.py")
+                "talkman_coloplay_highlight.py", "talkman_coloplay_preview.py", "talkman_coloplay_usb.py",
+                "talkman_airdata.py", "talkman_opus.py", "talkman_usb_audio.py")
 INFO_PLIST = {
     "CFBundleDisplayName": "TALKMAN COLOPLAY",
     "CFBundleShortVersionString": VERSION,
@@ -228,6 +229,15 @@ def build(sign_identity: str | None = None, notary_profile: str | None = None, *
         raise RuntimeError("--test-dmg 用于未公证测试版；正式公证构建请去掉此参数。")
     require_native_mac()
     static_check()
+    opus = Path('/opt/homebrew/opt/opus/lib/libopus.0.dylib')
+    if not opus.is_file():
+        raise RuntimeError('请先运行 brew install opus；设备麦克风需要在安装包内附带 Opus 解码库。')
+    arch = subprocess.run(['/usr/bin/lipo', '-archs', str(opus)], text=True, capture_output=True, check=True).stdout.split()
+    if 'arm64' not in arch:
+        raise RuntimeError('Opus 解码库不是 Apple Silicon arm64 版本。')
+    bundled_opus = ROOT / 'TalkMan-assets/native/mac-arm64/libopus.0.dylib'
+    bundled_opus.parent.mkdir(parents=True, exist_ok=True)
+    shutil.copy2(opus, bundled_opus)
     signing_preflight(sign_identity, notary_profile)
     BUILD.mkdir(exist_ok=True)
     DIST.mkdir(exist_ok=True)

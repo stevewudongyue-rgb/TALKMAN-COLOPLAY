@@ -172,6 +172,7 @@ class TalkManApp(TranslationUIMixin, DeliveryUIMixin, ConventionsUIMixin, AIEdit
             preferences = {}
             magnifier_enabled = False
         self.ui_preferences = preferences
+        self.audio_source_var = tk.StringVar(value='coloplay' if preferences.get('audio_source')=='coloplay' else 'computer')
         requested_scale = preferences.get('ui_scale', 1.0)
         self.ui_scale = requested_scale if type(requested_scale) in (int, float) and requested_scale in (1, 1.25, 1.5) else 1.0
         if self.ui_scale != 1.0:
@@ -1667,12 +1668,20 @@ class TalkManApp(TranslationUIMixin, DeliveryUIMixin, ConventionsUIMixin, AIEdit
         if navigating and mode != 'rewrite':
             self.status_var.set('位置选择中请使用「指令修改」说导航指令，或先确认／取消位置。')
             return False
-        if getattr(self, '_mic_reset_pending', False) or getattr(self, '_mic_permission_reset_required', False):
+        device_audio = self.audio_source_var.get() == 'coloplay'
+        input_factory = None
+        if device_audio:
+            bridge = getattr(self.coloplay, 'usb_bridge', None)
+            if not bridge or not bridge.wire.audio.available:
+                self.status_var.set('COLOPLAY 麦克风需要 USB 连接和新版卡带；可在设置 → 语音切回电脑麦克风。')
+                return False
+            input_factory = bridge.wire.audio.create
+        if not device_audio and (getattr(self, '_mic_reset_pending', False) or getattr(self, '_mic_permission_reset_required', False)):
             self.status_var.set("麦克风授权正在重置或已重置，请完全退出程序后重新打开，再点击录音授权。")
             return False
         if hasattr(self, 'coloplay') and (self.coloplay.active or self.window_controller.edge):
             self.window_controller.begin_device_edit()
-        if self._mic_permission_pending:
+        if self._mic_permission_pending and not device_audio:
             self.cancel_hold()
             self.status_var.set("请先完成系统麦克风授权，随后重新按住录音。")
             return False
@@ -1703,7 +1712,7 @@ class TalkManApp(TranslationUIMixin, DeliveryUIMixin, ConventionsUIMixin, AIEdit
         request = self._mic_permission_request
         self._mic_permission_pending = True
         try:
-            allowed = prepare_microphone_permission(
+            allowed = device_audio or prepare_microphone_permission(
                 lambda granted, message: self.events.put(("mic_permission", request, granted, message)))
         except VoicePermissionError as ex:
             self._mic_permission_pending = False
@@ -1760,6 +1769,7 @@ class TalkManApp(TranslationUIMixin, DeliveryUIMixin, ConventionsUIMixin, AIEdit
                     transcribe=recognize, max_seconds=spec.seconds, request_timeout=spec.timeout)
             else:
                 self.voice=self.session_factory(self.settings.api_key,self.settings.asr_model,callback,endpoint=self.settings.asr_ws_endpoint)
+            if input_factory:self.voice.input_stream_factory=input_factory
             self.voice.start()
             self.refresh_shortcut_labels()
         except VoicePermissionError as ex:

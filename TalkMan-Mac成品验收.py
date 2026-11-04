@@ -1,5 +1,6 @@
 """原生 Apple 芯片检查成品启动、签名和 DMG；隔离草稿并关闭在线服务。"""
 import hashlib
+import ctypes
 import json
 import os
 from pathlib import Path
@@ -73,6 +74,11 @@ def main():
             brand_assets = check_brand_assets(installed, info)
             assert (Path(mount)/'Applications').is_symlink()
             assert list(installed.rglob('TalkMan-free-service-ca.pem'))
+            opus = list(installed.rglob('TalkMan-assets/native/mac-arm64/libopus.0.dylib'))
+            assert len(opus) == 1, '设备麦克风解码库未随应用打包'
+            decoded = ctypes.CDLL(str(opus[0]))
+            decoded.opus_get_version_string.restype = ctypes.c_char_p
+            assert decoded.opus_get_version_string().startswith(b'libopus')
             assert not list(installed.rglob('*.dpapi'))
             assert not list(installed.rglob('TalkMan-配对.json'))
             cartridge=next(installed.rglob('TalkMan-update.json'))
@@ -86,7 +92,7 @@ def main():
     packages=[image,root/'TalkMan-Mac-AppleSilicon.zip']
     (root/'TalkMan-SHA256SUMS.txt').write_text(''.join(
         hashlib.sha256(p.read_bytes()).hexdigest()+'  '+p.name+'\n' for p in packages),encoding='utf-8')
-    report={'通过':True,'版本':FULL_VERSION,'架构':architecture,'品牌资源SHA256':brand_assets,'检查':['应用持续启动10秒，无异常回调','临时身份，免费服务关闭','应用签名完整','DMG挂载及内含应用版本、公开CA、Applications入口正确','安装镜像内图标引用及资源逐字节一致，AppKit解码及菜单模板通过'],
+    report={'通过':True,'版本':FULL_VERSION,'架构':architecture,'品牌资源SHA256':brand_assets,'检查':['应用持续启动10秒，无异常回调','临时身份，免费服务关闭','应用签名完整','DMG挂载及内含应用版本、公开CA、Applications入口正确','Opus 解码库随包且可加载','安装镜像内图标引用及资源逐字节一致，AppKit解码及菜单模板通过'],
             '未执行':['真实麦克风','真实Agent填入发送','实体COLOPLAY','Apple公证']}
     (root/'TalkMan-Mac验收.json').write_text(json.dumps(report,ensure_ascii=False,indent=2),encoding='utf-8')
     print(json.dumps(report,ensure_ascii=False))

@@ -1,4 +1,4 @@
-"""官方 CDC TX 上行 + CXUS JPEG 下行。未使用未公开的 USB 接收命令。"""
+"""官方 CDC 配对按键 + CXUS 图流与录音；单工作线程拥有 USB 端点。"""
 from __future__ import annotations
 
 import binascii
@@ -14,6 +14,8 @@ import time
 from talkman_coloplay_protocol import config_id
 from talkman_coloplay_preview import LocalDeviceSession
 from talkman_coloplay_cartridge import valid_build
+from talkman_airdata import Frames, PING, PONG, packet as data_packet
+from talkman_usb_audio import AudioManager
 
 VID, PID = 0x303A, 0x4005
 HEADER = struct.Struct('<IHHIHHHH')
@@ -100,6 +102,8 @@ class UsbWire:
         self.stop=threading.Event()
         self.lock=threading.Lock();self.image=None
         self.frames={};self.frame_stamps={};self.last_seq=None
+        self.audio=AudioManager(config)
+        self.paired=False;self.v2=False;self.last_pair=0
         self.thread=threading.Thread(target=self.run,name='TalkMan-USB',daemon=True)
         self.thread.start()
 
@@ -116,6 +120,8 @@ class UsbWire:
                 m.get('config')!=config_id(self.config)):return None
         if any(type(m.get(k)) is not int for k in ('seq','mask','frame')):return None
         if not 0<=m['mask']<=255 or m['seq']<0:return None
+        self.paired=True
+        self.last_pair=now
         build = valid_build(m.get('device_build'))
         if build != getattr(self, 'device_build', None):
             self.device_build = build
@@ -157,11 +163,33 @@ class UsbWire:
             ser=serial.Serial(port.device,115200,timeout=.015,write_timeout=.2)
             ser.reset_input_buffer()
             self.put('connected','USB 已打开，等待 USB 卡带')
-            parser=SerialFrames();fid=secrets.randbelow(65536);sent=0
+            parser=SerialFrames();incoming=Frames();fid=secrets.randbelow(65536);sent=0
+            ping_at=0;pong_at=0;ping_id=secrets.randbelow(65536)
+            duplex=0x83 in endpoints
             while not self.stop.is_set():
                 now=time.monotonic()
+                self.audio.available=self.v2 and self.paired and now-self.last_pair<1.5
+                self.audio.tick(now)
+                for _ in range(16):
+                    try:command=self.audio.commands.get_nowait()
+                    except queue.Empty:break
+                    if dev.write(3,command,timeout=300)!=len(command):raise RuntimeError('USB 控制消息未完整写入')
+                if duplex and now-ping_at>=1:
+                    ping_id=(ping_id+1)&65535
+                    ping=data_packet(PING,seq=ping_id)
+                    if dev.write(3,ping,timeout=300)!=len(ping):raise RuntimeError('USB 状态检测发送失败')
+                    ping_at=now
+                if self.v2 and now-pong_at>3:raise RuntimeError('USB 设备未响应')
+                if duplex:
+                    try:chunk=bytes(dev.read(0x83,512,timeout=10))
+                    except usb.core.USBTimeoutError:chunk=b''
+                    for frame in incoming.feed(chunk):
+                        if frame.kind==PONG and len(frame.data)==38:
+                            version,echo=struct.unpack_from('<HH',frame.data)
+                            if version==2 and echo==ping_id:self.v2=True;pong_at=time.monotonic()
+                        else:self.audio.receive(frame)
                 with self.lock:published=self.image
-                if published is not None and now-sent>=.10:
+                if published is not None and now-sent>=(.20 if self.audio.stream else .10):
                     image,stamp=published
                     packet=jpeg_packet(image,fid,limit)
                     if dev.write(3,packet,timeout=500)!=len(packet):raise RuntimeError('USB 图像未完整写入')
@@ -176,6 +204,7 @@ class UsbWire:
                     elif event:self.put(event[0],dict(mask=event[1],stamp=self.frame_stamps.get(message['frame'])))
         except Exception as error:self.put('error','USB 未就绪：'+str(error))
         finally:
+            self.audio.disconnect()
             if ser:ser.close()
             if dev is not None:
                 import usb.util
@@ -186,19 +215,20 @@ class UsbWire:
             self.put('closed',None)
 
     def close(self):
+        self.audio.disconnect()
         self.stop.set();self.thread.join(timeout=1.5)
 
 
 class UsbBridge:
-    def __init__(self,controller):
+    def __init__(self,controller, *, quiet=False):
         self.controller=controller
+        self.quiet=quiet
         self.session=LocalDeviceSession(controller,source='usb')
-        self.session.enabled=False;self.session.reset()
-        controller.local_session=self.session
+        self.session.enabled=False
         self.last_input=0;self.streaming=True;self.closed=False;self.exited=False
         self.wire=UsbWire(controller.config)
         self.wire.publish(self.session.render(),controller.stamp())
-        controller.local_notice('正在检查 USB 接口…')
+        if not quiet:controller.local_notice('正在检查 USB 接口…')
 
     def poll(self):
         if self.closed:return
@@ -206,27 +236,45 @@ class UsbBridge:
         for _ in range(128):
             try:kind,value,arrived=self.wire.events.get_nowait()
             except queue.Empty:break
-            if kind in ('error','connected'):self.controller.local_notice(value)
+            if kind in ('error','connected') and (not self.quiet or self.session.enabled):self.controller.local_notice(value)
             if kind=='closed':
                 self.session.device_build=None
-                self.session.enabled=False;self.session.reset();self.streaming=False
+                self.session.enabled=False
+                if self.controller.local_session is self.session:
+                    self.session.reset();self.controller.local_session=None
+                self.streaming=False
             elif kind=='device_build':
                 self.session.device_build=valid_build(value)
             elif kind=='exit':
-                self.exited=True;self.session.enabled=False;self.session.reset();self.streaming=False
+                self.wire.audio.disconnect()
+                self.exited=True;self.session.enabled=False
+                if self.controller.local_session is self.session:
+                    self.session.reset();self.controller.local_session=None
+                self.streaming=False
             elif kind=='wake':
                 # 只有零按键唤醒画面；此报文不执行任何业务动作。
                 self.streaming=True;self.exited=False
+                if self.controller.local_session is not self.session:
+                    self.controller.intent.cancel()
+                self.controller.local_session=self.session
+                self.session.enabled=True;self.last_input=now
+                self.session.feed(0)
             elif kind in ('buttons','reset'):
                 if now-arrived>.35 or self.exited or not display_matches(value['stamp'],self.controller.stamp(),value['mask']):
-                    self.session.reset();continue
+                    if self.controller.local_session is self.session:self.session.reset()
+                    continue
                 if kind=='reset' or not self.session.enabled:self.session.reset()
+                if self.controller.local_session is not self.session:
+                    self.controller.intent.cancel()
+                self.controller.local_session=self.session
                 self.session.enabled=True;self.last_input=now
                 self.session.feed(value['mask'])
                 if not self.session.enabled:
                     self.exited=True;self.streaming=False
         if self.session.enabled and now-self.last_input>1:
+            self.wire.audio.disconnect()
             self.session.enabled=False;self.session.reset()
+            if self.controller.local_session is self.session:self.controller.local_session=None
             self.controller.local_notice('USB 按键连接已中断')
         self.session.now=now*1000
         self.session.drain_turns()
@@ -236,6 +284,9 @@ class UsbBridge:
 
     def close(self):
         if self.closed:return
-        self.closed=True;self.session.enabled=False;self.session.reset();self.wire.close()
+        owned=self.controller.local_session is self.session
+        self.closed=True;self.session.enabled=False
+        if owned:self.session.reset()
+        self.wire.close()
         if self.controller.local_session is self.session:self.controller.local_session=None
-        self.controller.set_active(False)
+        if not self.controller.connected():self.controller.set_active(False)

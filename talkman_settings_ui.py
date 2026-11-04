@@ -223,7 +223,7 @@ class SettingsPanelMixin:
         threading.Thread(target=work, daemon=True).start()
 
     def _build_coloplay_settings(self, box, win):
-        self._settings_description(box, 'COLOPLAY · 设备偏好', '调整设备辅助桌面输入的方式；保存后立即生效，无需重装卡带。')
+        self._settings_description(box, 'COLOPLAY · 设备偏好', '优先 USB 数据线连接；Wi-Fi 在连接设置内作为备用。录音来源在「语音」页选择。')
         appearance = ttk.Frame(box)
         appearance.pack(fill='x', pady=(0, 8))
         ttk.Label(appearance, text='界面风格').pack(side='left')
@@ -282,7 +282,7 @@ class SettingsPanelMixin:
         actions.pack(fill='x', pady=(4, 12))
         self.button(actions, '保存设备偏好', save).pack(side='left')
         self.button(actions, '恢复默认', restore, style='Ghost.TButton').pack(side='left', padx=8)
-        self.button(box, '连接与设备快捷键…', connection, style='Ghost.TButton').pack(anchor='w')
+        self.button(box, 'USB 连接与 Wi-Fi 备用…', connection, style='Ghost.TButton').pack(anchor='w')
         def tutorial():
             self._close_settings(win)
             device.show_guide()
@@ -781,6 +781,24 @@ class SettingsPanelMixin:
 
     def _build_asr_settings(self, box, win):
         self._settings_description(box, "把声音变成文字", "录音和覆盖、麦克风输入共用此服务；指令修改会在识别后继续调用文字模型。")
+        source_label=tk.StringVar(value='COLOPLAY 麦克风 · USB' if self.audio_source_var.get()=='coloplay' else '电脑麦克风')
+        self.audio_source_combobox=self._settings_field(box,'录音来源',source_label,
+            values=('电脑麦克风','COLOPLAY 麦克风 · USB'),readonly=True)
+        def change_source(_event=None):
+            source='coloplay' if source_label.get().startswith('COLOPLAY') else 'computer'
+            if self.busy or self.voice or self.auto_running:
+                source_label.set('COLOPLAY 麦克风 · USB' if self.audio_source_var.get()=='coloplay' else '电脑麦克风')
+                self.status_var.set('请结束本轮录音后再切换麦克风。')
+                return
+            try:self.save_ui_preferences(audio_source=source)
+            except OSError:
+                source_label.set('COLOPLAY 麦克风 · USB' if self.audio_source_var.get()=='coloplay' else '电脑麦克风')
+                self.status_var.set('录音来源保存失败，请检查数据目录。');return
+            self.audio_source_var.set(source)
+            self.status_var.set('录音来源已保存：'+source_label.get())
+        self.audio_source_combobox.bind('<<ComboboxSelected>>',change_source)
+        ttk.Label(box,text='设备麦克风需新版固件与卡带，通过 USB 上传；断开时提示重连，不自动换麦克风。',
+                  wraplength=585,style='Muted.TLabel').pack(anchor='w',pady=(0,12))
         self.asr_provider_choice = tk.StringVar(value=PROVIDERS[self.asr_settings.provider].label)
         self.asr_provider_combobox = self._settings_field(box, "识别服务", self.asr_provider_choice,
             values=tuple(spec.label for name, spec in PROVIDERS.items() if name != 'free'), readonly=True)
