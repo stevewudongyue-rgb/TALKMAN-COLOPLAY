@@ -1,8 +1,11 @@
 """五秒确认期继续输入、Wi-Fi 去重与 Lua 接收公平调度。仅使用隔离服务。"""
 import json
+import logging
 from pathlib import Path
 import queue
+import threading
 import time
+from types import SimpleNamespace
 import unittest
 from unittest.mock import patch
 
@@ -70,30 +73,50 @@ class ContinueInputTests(unittest.TestCase):
 
 class WifiFlowTests(unittest.TestCase):
     def test_idle_sends_four_per_second_and_changed_arm_is_prompt(self):
-        events = queue.Queue()
-        server = StateServer('127.0.0.1', 0, 'x'*48, 'test', events)
+        # 同步驱动真实 handle，隔离握手耗时与 CI 线程调度；真实连接另测。
+        server = StateServer.__new__(StateServer)
+        server.events, server.token, server.config = queue.Queue(), 'x'*48, 'test'
+        server.lock = threading.Lock()
+        server.peer, server.closed = None, False
+        server.diagnostics = logging.Logger('test-state-timing')
         server.publish(dict(ready=True, phase='idle', arm=''))
-        try:
-            with connect(f'ws://127.0.0.1:{server.port}', ping_interval=None) as ws:
-                ws.send(json.dumps(dict(type='hello',version=1,token='x'*48,config='test')))
-                count, until = 0, time.monotonic()+1.05
-                while time.monotonic() < until:
-                    try:
-                        ws.recv(timeout=.03)
-                        count += 1
-                    except TimeoutError:
-                        pass
-                self.assertGreaterEqual(count, 4)
-                self.assertLessEqual(count, 6)
-                start = time.monotonic()
-                server.publish(dict(ready=True, phase='idle', arm='new-action'))
-                while True:
-                    frame = json.loads(ws.recv(timeout=.2))
-                    if frame.get('arm') == 'new-action':
-                        break
-                self.assertLess(time.monotonic()-start, .2)
-        finally:
-            server.stop()
+        clock, sent = SimpleNamespace(ms=0), []
+
+        class Socket:
+            hello = False
+
+            def recv(self, timeout):
+                if not self.hello:
+                    self.hello = True
+                    clock.ms += 700  # 握手慢也不能改变后续节流规则。
+                    return json.dumps(dict(type='hello', version=1,
+                                           token='x'*48, config='test'))
+                clock.ms += round(timeout*1000)
+                if clock.ms >= 1760:
+                    server.publish(dict(ready=True, phase='idle', arm='new-action'))
+                if clock.ms >= 1800:
+                    server.closed = True
+                raise TimeoutError
+
+            def send(self, raw):
+                sent.append((clock.ms, json.loads(raw)))
+
+            def close(self, *args):
+                pass
+
+        with patch('talkman_coloplay_server.time',
+                   SimpleNamespace(monotonic=lambda: clock.ms/1000)):
+            server.handle(Socket())
+        idle = [ms for ms, frame in sent if frame['arm'] == '']
+        self.assertEqual(idle[0], 700)  # 完成握手立即给首帧。
+        self.assertEqual(len(idle), 5)
+        for first, second in zip(idle, idle[1:]):
+            self.assertGreaterEqual(second-first, 250)
+            self.assertLessEqual(second-first, 270)
+        changed = [ms for ms, frame in sent if frame['arm'] == 'new-action']
+        self.assertEqual(len(changed), 1)
+        self.assertLessEqual(changed[0]-1760, 20)
+        self.assertEqual([frame['seq'] for _, frame in sent], list(range(1, len(sent)+1)))
 
     def test_slow_device_receives_fresh_frames_and_heartbeat_stays_connected(self):
         events = queue.Queue()
@@ -118,6 +141,16 @@ class WifiFlowTests(unittest.TestCase):
                 self.assertGreater(len(received), 12)
                 self.assertEqual(len({m['session'] for m in received}), 1)
                 self.assertEqual([m['seq'] for m in received], sorted({m['seq'] for m in received}))
+                server.publish(dict(ready=True, arm='new-action'))
+                # 此处只核对真实传输可到达；20ms响应规则由上面的可控时钟测试保证。
+                deadline = time.monotonic()+2
+                while True:
+                    remaining = deadline-time.monotonic()
+                    self.assertGreater(remaining, 0, '状态变更未到达真实连接')
+                    changed = json.loads(ws.recv(timeout=remaining))
+                    if changed.get('arm') == 'new-action':
+                        break
+                self.assertEqual(changed['session'], received[-1]['session'])
         finally:
             server.stop()
 
