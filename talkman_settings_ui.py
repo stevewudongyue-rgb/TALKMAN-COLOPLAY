@@ -23,8 +23,9 @@ from talkman_shortcuts import (
 from talkman_global_hotkeys import GLOBAL_ACTIONS
 from talkman_hover_help import FIELD_HELP
 from talkman_settings_viewport import SettingsViewport
+from talkman_system_style import keep_mac_windows_separate
 from talkman_version import FULL_VERSION, version_record
-from talkman_window import WindowPlatform, window_screen, fit_window_rect, Rect
+from talkman_window import WindowPlatform, window_screen, fit_window_rect
 from talkman_free_service import NOTICE, FreeClient
 from talkman_updates import (UpdateError, check_update, discard_prepared_update,
                              download_update, installed_app_path, launch_installer, prepare_mac_update)
@@ -60,7 +61,9 @@ class SettingsPanelMixin:
             self._raise_settings_window(existing)
             return
 
+        keep_mac_windows_separate()
         win = tk.Toplevel(self)
+        win.withdraw()
         self.settings_window = self.asr_window = self.controls_window = win
         if hasattr(self, 'window_controller'):
             self.window_controller.sync_hotkeys()
@@ -121,19 +124,17 @@ class SettingsPanelMixin:
         win._talkman_resize_job = None
         win._talkman_resize_running = False
         win._talkman_resize_initial = True
-        self.settings_notebook.bind("<<NotebookTabChanged>>", lambda _event: self._queue_settings_resize(win), add=True)
-        for tab in self.settings_tabs.values():
-            tab.bind("<Configure>", lambda _event: self._queue_settings_resize(win))
-            for child in tab.winfo_children():
-                child.bind("<Configure>", lambda _event: self._queue_settings_resize(win), add=True)
         win.bind("<Destroy>", lambda event: self._cancel_settings_resize(win) if event.widget == win else None, add=True)
         win.bind('<Configure>', lambda event: self._queue_settings_resize(win) if event.widget == win else None, add=True)
         self._fit_settings_window(win)
+        keep_mac_windows_separate()
+        win.deiconify()
         self._raise_settings_window(win)
         win.protocol("WM_DELETE_WINDOW", lambda: self._close_settings(win))
 
     def _raise_settings_window(self, win):
         if win.winfo_exists():
+            keep_mac_windows_separate()
             if sys.platform == 'darwin':
                 # A pinned Tk root can cover its transient child on macOS.
                 pinned = self.topmost_var.get() or self.window_controller.compact
@@ -299,7 +300,8 @@ class SettingsPanelMixin:
             win._talkman_resize_job = None
 
     def _queue_settings_resize(self, win):
-        if getattr(win, "_talkman_resize_running", False) or getattr(win, "_talkman_resize_job", None) is not None:
+        if (not win.winfo_ismapped() or getattr(win, "_talkman_resize_running", False)
+                or getattr(win, "_talkman_resize_job", None) is not None):
             return
         win._talkman_resize_job = win.after_idle(lambda: self._fit_settings_window(win))
 
@@ -314,23 +316,37 @@ class SettingsPanelMixin:
             bounds = native.bounds()
             screens = native.screens()
             initial = win._talkman_resize_initial
-            screen = window_screen(WindowPlatform(self).bounds() if initial else bounds, screens)
+            editor_bounds = WindowPlatform(self).bounds()
+            screen = window_screen(editor_bounds if initial else bounds, screens)
+            if initial:
+                # 隐藏的 Mac 设置可能报告 1×1，使用主窗口窗框厚度估计首次尺寸。
+                frame_w = max(0, editor_bounds.width-self.winfo_width())
+                frame_h = max(0, editor_bounds.height-self.winfo_height())
+                limit_w = max(1, screen.width-48-frame_w)
+                limit_h = max(1, screen.height-48-frame_h)
+                preferred = getattr(self, '_settings_size', (round(960*self.ui_scale), 720))
+                width, height = min(limit_w, preferred[0]), min(limit_h, preferred[1])
+                win.minsize(min(650, width), min(580, height))
+                x = screen.x+(screen.width-width-frame_w)//2
+                y = screen.y+(screen.height-height-frame_h)//2
+                win.geometry(f'{width}x{height}+{x}+{y}')
+                win._talkman_resize_initial = False
+                self.settings_viewport.layout()
+                return
             frame_w = max(0, bounds.width-win.winfo_width())
             frame_h = max(0, bounds.height-win.winfo_height())
             limit_w, limit_h = max(1, screen.width-48-frame_w), max(1, screen.height-48-frame_h)
             minimum = (min(650, limit_w), min(580, limit_h))
             if win.minsize() != minimum:
                 win.minsize(*minimum)
-            width = min(limit_w, max(650, self.settings_notebook.winfo_reqwidth()+48) if initial else win.winfo_width())
-            height = min(limit_h, max(660, self.settings_notebook.winfo_reqheight()+110) if initial else win.winfo_height())
-            win._talkman_resize_initial = False
+            # 内容和页签只改变视口，外框仅在超出当前屏幕工作区时收缩。
+            width = min(limit_w, win.winfo_width())
+            height = min(limit_h, win.winfo_height())
             if (width, height) != (win.winfo_width(), win.winfo_height()):
                 win.geometry(f"{width}x{height}")
             win.update_idletasks()
             bounds = native.bounds()
             destination = fit_window_rect(bounds, screen)
-            if initial:
-                destination = Rect(screen.x+(screen.width-bounds.width)//2, screen.y+(screen.height-bounds.height)//2, bounds.width, bounds.height)
             if (destination.x, destination.y) != (bounds.x, bounds.y):
                 native.move_to(destination.x, destination.y)
             self.settings_viewport.layout()
@@ -339,6 +355,7 @@ class SettingsPanelMixin:
 
     def _close_settings(self, win):
         self._cancel_settings_resize(win)
+        self._settings_size = (win.winfo_width(), win.winfo_height())
         win.destroy()
         if sys.platform == 'darwin' and not self.closing:
             self.attributes('-topmost', self.topmost_var.get() or self.window_controller.compact)

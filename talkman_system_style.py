@@ -8,6 +8,21 @@ import tkinter as tk
 from talkman_assets import asset_dir
 
 
+def keep_mac_windows_separate(*, existing=True):
+    """设置不是文档；禁止 macOS 将应用窗口合并成标签页。"""
+    if sys.platform != 'darwin':
+        return
+    try:
+        import AppKit
+        AppKit.NSWindow.setAllowsAutomaticWindowTabbing_(False)
+        # 启动前只设类级策略，必须由 Tk 创建自己的 NSApplication 子类。
+        if existing:
+            for window in AppKit.NSApplication.sharedApplication().windows():
+                window.setTabbingMode_(AppKit.NSWindowTabbingModeDisallowed)
+    except (ImportError, AttributeError, RuntimeError):
+        pass
+
+
 def set_app_identity():
     if sys.platform == 'win32':
         try:
@@ -105,6 +120,7 @@ class SystemStyle:
             if sys.platform == 'win32':
                 windows_titlebar(window.winfo_id(), self.dark)
             elif sys.platform == 'darwin':
+                keep_mac_windows_separate()
                 # Tk 的入口避免绕过其窗口生命周期直接改 NSWindow。
                 window.tk.call('::tk::unsupported::MacWindowStyle', 'appearance',
                                window._w, 'darkaqua' if self.dark else 'aqua')

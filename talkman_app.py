@@ -47,7 +47,7 @@ from talkman_conventions import Conventions, is_remember_instruction
 from talkman_conventions_ui import ConventionsUIMixin
 from talkman_delivery_ui import DeliveryUIMixin
 from talkman_free_service import FreeService, FreeClient, default_free_mode
-from talkman_system_style import SystemStyle, set_app_identity
+from talkman_system_style import SystemStyle, set_app_identity, keep_mac_windows_separate
 from talkman_translation_ui import TranslationUIMixin
 
 THEMES = {
@@ -124,6 +124,7 @@ class TextHistory:
 
 class TalkManApp(TranslationUIMixin, DeliveryUIMixin, ConventionsUIMixin, AIEditMixin, SettingsPanelMixin, tk.Tk):
     def __init__(self, data_dir=None, session_factory=VoiceSession, client_factory=QwenClient, file_session_factory=FileVoiceSession, desktop_services=None):
+        keep_mac_windows_separate(existing=False)
         if session_factory is VoiceSession and desktop_services is not False:
             set_app_identity()
         super().__init__()
