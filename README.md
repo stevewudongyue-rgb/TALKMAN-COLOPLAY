@@ -32,6 +32,29 @@ Mac ICNS的11种表示均可解码，18／36菜单模板规格和源码引用已
 
 每次交付的新版本在 Windows、Mac 相关回归和成品检查通过后，同步发布到应用内一键升级。使用 `TalkMan-发布工具/TalkMan-发布一键升级.py`：本地包和清单核对 → 上传安装包 → 客户端实际下载并校验 → 备份旧清单并原子切换 → 验证旧版能发现更新、新版不重复提示。升级说明必须写明是否需要更新设备卡带，配对 ROM 由各电脑导出。发布完成后把线上版本与验证写入现有研究记录。
 
+### Mac 构建交接：优先公司 M2
+
+后续默认把已提交源码通过 GitHub 同步到公司 M2，在原生 arm64 桌面会话构建；只有 M2 不可用时，才手动触发 GitHub Actions 的 Mac 工作流。源码推送不再自动启动云端编译。同一提交已有通过验收的产物时直接复用，避免重复编译。
+
+公司 M2 使用 macOS 14 及以上、python.org 的 Python 3.12／3.13（含 Tk），首次用 `xcode-select --install` 安装命令行工具；在终端确认 `python3 -c 'import platform; print(platform.machine())'` 输出 `arm64`。使用独立源码目录，不把它覆盖到 Applications 或用户配置目录。
+
+首次获取源码：
+
+```bash
+git clone --branch codex/coloplay-display-51 https://github.com/stevewudongyue-rgb/TALKMAN-COLOPLAY.git TalkMan-COLOPLAY-source
+cd TalkMan-COLOPLAY-source
+```
+
+后续先 `git status --short` 核对本地改动；工作树干净时 `git pull --ff-only`。有改动先保留并核对，不使用强制重置。用 `git rev-parse HEAD` 记录待验收提交，然后依次执行（前一步失败即停）：
+
+```bash
+python3 TalkMan-构建Mac.py --test-dmg &&
+bash TalkMan-Mac回归.command &&
+TalkMan-venv-mac/bin/python TalkMan-Mac成品验收.py
+```
+
+从 `dist-mac` 交付 DMG、应用 ZIP、`TalkMan-SHA256SUMS.txt`、`TalkMan-Mac验收.json`，同时记录源码提交和回归日志。回归使用隔离数据与模拟模型；成品验收关闭在线服务。仍须在目标 M2 手测系统授权、真实录音、Agent 填入及设备连接，这些不能由离线通过代替。测试包未完成 Apple 公证；沿用既有一键升级发布流程，验收通过后再发布，不修改本机 Key、草稿或配对。
+
 ## 下载
 
 **优先使用设置底部 → 一键升级，当前为 0.1.28.63。**

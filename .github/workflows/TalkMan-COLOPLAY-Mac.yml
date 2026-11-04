@@ -1,15 +1,7 @@
 name: TALKMAN COLOPLAY · Mac 测试安装包
 on:
+  # 默认从 GitHub 同步到公司 M2 本机构建；仅 M2 不可用时手动触发云端。
   workflow_dispatch:
-  push:
-    branches: [main, codex/coloplay-display-51]
-    paths:
-      - '*.py'
-      - 'TalkMan-requirements.txt'
-      - 'TalkMan-Mac.entitlements'
-      - 'TalkMan-assets/**'
-      - 'TalkMan-设备卡带/**'
-      - '.github/workflows/TalkMan-COLOPLAY-Mac.yml'
 permissions:
   contents: read
 concurrency:
@@ -31,15 +23,7 @@ jobs:
           MACOSX_DEPLOYMENT_TARGET: '14.0'
         run: python3 TalkMan-构建Mac.py --test-dmg
       - name: 检查 Wi-Fi、按键及 Mac 编辑逻辑
-        run: |
-          set -e
-          TalkMan-venv-mac/bin/python -u -c 'import faulthandler, sys, unittest; faulthandler.dump_traceback_later(90, exit=True); unittest.main(module=None, argv=sys.argv, verbosity=2)' test_talkman_coloplay_revision63
-          TalkMan-venv-mac/bin/python -m unittest test_talkman_coloplay_recovery test_talkman_input_locations test_talkman_input_picker test_talkman_coloplay_preview test_talkman_coloplay_revision59 test_talkman_coloplay_revision60.CoordinateTests test_talkman_coloplay_revision61 test_talkman_cartridge_update -v
-          TalkMan-venv-mac/bin/python -u -c 'import faulthandler, sys, unittest; faulthandler.dump_traceback_later(90, exit=True); unittest.main(module=None, argv=sys.argv, verbosity=2)' test_talkman_ai_edit
-          TalkMan-venv-mac/bin/python -u -c 'import faulthandler, sys, unittest; faulthandler.dump_traceback_later(90, exit=True); unittest.main(module=None, argv=sys.argv, verbosity=2)' test_talkman_app.EditorTests.test_pinned_main_window_opens_and_closes_settings
-          for module in test_talkman_delivery_confirm test_talkman_sync test_talkman_voice test_talkman_updates test_talkman_target test_talkman_coloplay test_talkman_editor test_talkman_coloplay_revision48 test_talkman_coloplay_revision47 test_talkman_coloplay_revision46 test_talkman_coloplay_revision44 test_talkman_coloplay_revision43 test_talkman_coloplay_revision45 test_talkman_target_macos test_talkman_macos_setup test_talkman_app; do
-            TalkMan-venv-mac/bin/python -u -c 'import faulthandler, sys, unittest; faulthandler.dump_traceback_later(180, exit=True); unittest.main(module=sys.argv.pop(), verbosity=2)' "$module"
-          done
+        run: bash TalkMan-Mac回归.command
       - name: 校验成品与 DMG
         run: TalkMan-venv-mac/bin/python TalkMan-Mac成品验收.py
       - name: 保存 Mac 安装文件
