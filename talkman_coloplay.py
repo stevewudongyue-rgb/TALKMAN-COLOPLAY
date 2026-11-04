@@ -646,6 +646,7 @@ class ColoPlayController:
         for _ in range(40):
             try: kind, peer, value = self.events.get_nowait()
             except queue.Empty: break
+            usb_owned = bool(self.local_session and getattr(self.local_session, 'source', None) == 'usb')
             if kind == 'cycle':
                 self.cycling = False
                 generation,value=value
@@ -680,7 +681,7 @@ class ColoPlayController:
                 self.stop_cartridge_download()
                 self.peer = peer
                 self.device_build = valid_build(value)
-                if not self.local_session:self.intent.cancel()
+                if not usb_owned:self.intent.cancel()
             elif kind == 'cartridge_ready':
                 identifier,download,error=value
                 if peer != self.peer or identifier != self.cartridge_request:
@@ -691,17 +692,17 @@ class ColoPlayController:
                     self.cartridge_offer=dict(download.offer,id=identifier,status='ready')
             elif peer == self.peer:
                 if kind in ('disconnected', 'exit'):
-                    if not self.local_session and self.app.input_picker.active and self.app.input_picker.source == 'device':
+                    if not usb_owned and self.app.input_picker.active and self.app.input_picker.source == 'device':
                         self.app.input_picker.cancel()
                     self.peer = None
                     self.device_build = None
                     self.stop_cartridge_download()
-                    if not self.local_session:
+                    if not usb_owned:
                         self.intent.cancel()
                         self.cancel_navigation()
-                elif kind == 'intent' and not self.local_session: self.arm(value)
-                elif kind == 'cartridge_check' and not self.local_session: self.prepare_cartridge_update(value)
-                elif kind == 'cancel_intent' and not self.local_session:
+                elif kind == 'intent' and not usb_owned: self.arm(value)
+                elif kind == 'cartridge_check' and not usb_owned: self.prepare_cartridge_update(value)
+                elif kind == 'cancel_intent' and not usb_owned:
                     self.intent.cancel(); self.cancel_navigation(); self.scroll.cancel()
         if self.usb_bridge:
             self.usb_bridge.poll()

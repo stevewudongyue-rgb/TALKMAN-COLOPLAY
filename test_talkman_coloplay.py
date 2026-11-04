@@ -309,7 +309,7 @@ class DesktopTests(unittest.TestCase):
 
     def test_late_wifi_disconnect_does_not_cancel_usb_editor_state(self):
         d=self.device
-        session=Mock(enabled=True,device_build=65)
+        session=Mock(enabled=True,device_build=65,source='usb')
         d.local_session=session;d.peer='old-wifi'
         d.events.put(('disconnected','old-wifi',None))
         with patch.object(d,'cancel_navigation') as cancel:
