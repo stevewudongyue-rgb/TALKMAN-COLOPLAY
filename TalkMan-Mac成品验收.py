@@ -9,6 +9,7 @@ import tempfile
 import time
 
 from talkman_version import FULL_VERSION, VERSION, BUILD
+from talkman_coloplay_cartridge import CARTRIDGE_BUILD
 
 
 def main():
@@ -50,7 +51,7 @@ def main():
             cartridge=next(installed.rglob('TalkMan-update.json'))
             metadata=json.loads(cartridge.read_text('utf-8'))
             payload=(cartridge.parent/'TalkMan_update.rom').read_bytes()
-            assert metadata['build']==BUILD and metadata['size']==len(payload)
+            assert metadata['build']==CARTRIDGE_BUILD and metadata['size']==len(payload)
             assert hashlib.sha256(payload).hexdigest()==metadata['sha256']
             assert "token=''" in (cartridge.parent/'TalkMan-连接配置.lua').read_text('utf-8')
             subprocess.run(['codesign','--verify','--deep','--strict',str(installed)],check=True)
