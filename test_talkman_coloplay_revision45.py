@@ -37,23 +37,26 @@ class AutomaticServiceTests(unittest.TestCase):
         self.temp.cleanup()
 
     def test_new_install_enrolls_over_https_without_ssh_and_persists_encrypted_identity(self):
-        with patch('talkman_free_service.subprocess.Popen') as ssh:
+        secrets = {}
+        with patch('talkman_free_service.subprocess.Popen') as ssh, \
+             patch.object(free, 'save_keychain_secret', side_effect=lambda _dir, group, data: secrets.__setitem__(group, data)), \
+             patch.object(free, 'load_keychain_secret', side_effect=lambda _dir, group: secrets[group]):
             self.assertTrue(self.service.call('/v1/status')['asr_configured'])
             ssh.assert_not_called()
-        urls = [call.args[0].full_url for call in self.opener.open.call_args_list]
-        self.assertEqual(urls, [free.SERVICE_URL+'/v1/enroll', free.SERVICE_URL+'/v1/status'])
-        token = self.service._profile['token']
-        if free.sys.platform == 'darwin':
-            self.assertTrue((self.directory/'free-service.enabled').exists())
-            self.assertFalse((self.directory/free.PROFILE).exists())
-            self.assertEqual(json.loads(free.load_keychain_secret(self.directory, 'free'))['token'], token)
-        else:
-            self.assertTrue((self.directory/free.PROFILE).exists())
-        for file in self.directory.iterdir():
-            self.assertNotIn(token.encode(), file.read_bytes())
-        reopened = free.FreeService(self.directory)
-        self.assertEqual(reopened._load_profile()['token'], token)
-        reopened.close()
+            urls = [call.args[0].full_url for call in self.opener.open.call_args_list]
+            self.assertEqual(urls, [free.SERVICE_URL+'/v1/enroll', free.SERVICE_URL+'/v1/status'])
+            token = self.service._profile['token']
+            if free.sys.platform == 'darwin':
+                self.assertTrue((self.directory/'free-service.enabled').exists())
+                self.assertFalse((self.directory/free.PROFILE).exists())
+                self.assertEqual(json.loads(secrets['free'])['token'], token)
+            else:
+                self.assertTrue((self.directory/free.PROFILE).exists())
+            for file in self.directory.iterdir():
+                self.assertNotIn(token.encode(), file.read_bytes())
+            reopened = free.FreeService(self.directory)
+            self.assertEqual(reopened._load_profile()['token'], token)
+            reopened.close()
 
     def test_two_installations_never_share_identity(self):
         first = self.service._load_profile()['token']
