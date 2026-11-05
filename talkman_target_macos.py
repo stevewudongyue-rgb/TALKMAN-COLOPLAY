@@ -667,6 +667,9 @@ class MacTargetBackend:
             pending.extend(children or [])
         self.last_fill_tree = dict(nodes=len(seen), text_controls=text_controls, web_areas=web_areas,
                                    editable=editable_count, child_errors=child_errors)
+        main = [e for e in candidates if self._element_input_role(record.target, e)]
+        if main:
+            return main[0] if len(main) == 1 else None
         ranked = sorted((
             (sum(weight for word, weight in _MAIN_INPUT if word in self._input_label(element)), element)
             for element in candidates
@@ -894,16 +897,19 @@ class MacTargetBackend:
 
     @_with_native_pool
     def input_position_role(self, target, handle):
+        return self._element_input_role(target, handle[2])
+
+    def _element_input_role(self, target, element):
         from talkman_input_locations import main_input_role
-        element = handle[2]
         return main_input_role(target, self._api.get(element, 'AXIdentifier', ''),
             [self._api.get(element, key, '') for key in ('AXTitle', 'AXDescription', 'AXPlaceholderValue')])
 
     @_with_native_pool
-    def resolve_main_input(self, target, role):
+    def resolve_main_input(self, target, role=None):
         from talkman_target import InputLocationError
         choices = [handle for handle, _ in self.list_inputs(target)
-                   if self.input_position_role(target, handle) == role]
+                   if self.input_position_role(target, handle) and
+                   (role is None or self.input_position_role(target, handle) == role)]
         if len(choices) != 1:
             raise InputLocationError('当前对话的主输入框无法唯一确认，请重新选择输入位置。')
         self.inspect_input(target, choices[0])
@@ -980,8 +986,17 @@ class MacTargetBackend:
             api.activate(record.app, record.element)
             record = self._wait_focus(target)
             current = self._focused_input(record)
-        preserve = originally_focused and remembered_focus is None
         remembered = self._remembered_input(target, record, remembered_focus)
+        candidate = current if current is not None else remembered
+        if (getattr(self, '_bound_input', None) is None and candidate is not None
+                and not self._element_input_role(target, candidate)):
+            preferred = self._main_input(record)
+            if preferred is not None and self._element_input_role(target, preferred):
+                current = None
+                originally_focused = False
+                remembered_focus = None
+                remembered = None
+        preserve = originally_focused and remembered_focus is None
         if remembered_focus is not None:
             preserve = bool(
                 remembered is not None

@@ -211,10 +211,10 @@ class Interaction43Tests(unittest.TestCase):
         d.tick();a.after_cancel(d.job);d.job=None
         a.target_controller.cycle.assert_not_called()
         s.feed(0,500)
-        self.assertEqual(a.target_controller.begin_inputs.call_args.args[0], windows[2])
+        self.assertEqual(a.target_controller.cycle.call_args.kwargs['expected_target'], windows[2])
         self.assertEqual(a.target_controller.selected, windows[0])
-        s.feed(0,600);a.target_controller.begin_inputs.assert_called_once()
-        a.target_controller.cycle.assert_not_called()
+        s.feed(0,600);a.target_controller.cycle.assert_called_once()
+        a.target_controller.begin_inputs.assert_not_called()
         d.local_session=None
 
     def test_send_current_uses_selected_target_and_does_not_paste_editor(self):

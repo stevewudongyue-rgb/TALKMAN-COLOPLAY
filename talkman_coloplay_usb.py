@@ -189,7 +189,7 @@ class UsbWire:
                             if version==2 and echo==ping_id:self.v2=True;pong_at=time.monotonic()
                         else:self.audio.receive(frame)
                 with self.lock:published=self.image
-                if published is not None and now-sent>=(.20 if self.audio.stream else .10):
+                if published is not None and now-sent>=(.35 if self.audio.stream else .25):
                     image,stamp=published
                     packet=jpeg_packet(image,fid,limit)
                     if dev.write(3,packet,timeout=500)!=len(packet):raise RuntimeError('USB 图像未完整写入')
@@ -225,9 +225,11 @@ class UsbBridge:
         self.quiet=quiet
         self.session=LocalDeviceSession(controller,source='usb')
         self.session.enabled=False
-        self.last_input=0;self.streaming=True;self.closed=False;self.exited=False
+        self.last_input=0;self.streaming=False;self.disconnected=False
+        self.closed=False;self.exited=False
         self.wire=UsbWire(controller.config)
-        self.wire.publish(self.session.render(),controller.stamp())
+        # Wait for a paired cartridge wake message before sending any display frames.
+        self.wire.publish(None)
         if not quiet:controller.local_notice('正在检查 USB 接口…')
 
     def poll(self):
@@ -238,6 +240,7 @@ class UsbBridge:
             except queue.Empty:break
             if kind in ('error','connected') and (not self.quiet or self.session.enabled):self.controller.local_notice(value)
             if kind=='closed':
+                self.disconnected=True
                 self.session.device_build=None
                 self.session.enabled=False
                 if self.controller.local_session is self.session:
@@ -274,13 +277,16 @@ class UsbBridge:
         if self.session.enabled and now-self.last_input>1:
             self.wire.audio.disconnect()
             self.session.enabled=False;self.session.reset()
+            self.streaming=False
             if self.controller.local_session is self.session:self.controller.local_session=None
             self.controller.local_notice('USB 按键连接已中断')
         self.session.now=now*1000
         self.session.drain_turns()
-        if now >= getattr(self, 'next_render', 0):
+        if not self.streaming:
+            self.wire.publish(None)
+        elif now >= getattr(self, 'next_render', 0):
             self.next_render=now+.1
-            self.wire.publish(self.session.render() if self.streaming else None,self.controller.stamp())
+            self.wire.publish(self.session.render(),self.controller.stamp())
 
     def close(self):
         if self.closed:return

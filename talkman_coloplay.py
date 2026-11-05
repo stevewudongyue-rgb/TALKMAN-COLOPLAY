@@ -536,7 +536,7 @@ class ColoPlayController:
                    -1 if direction>0 else 0)
         self.target_preview=windows[(index+direction)%len(windows)]
         self.target_due=now
-        self.app.status_var.set('预选 Agent：'+self.target_preview.app+' · 松开右下后选择输入位置')
+        self.app.status_var.set('预选 Agent：'+self.target_preview.app+' · 松开右下即选定')
 
     def commit_target(self):
         if self.target_scanning:
@@ -549,8 +549,11 @@ class ColoPlayController:
         target=self.target_preview
         self.target_due=0
         if not controller or target is None:return
-        self.cancel_navigation()
-        self.app.input_picker.begin(target, source='device')
+        self.target_cancel = threading.Event()
+        generation = self.target_generation
+        self.cycling = True
+        controller.cycle(1, lambda state, value: self.events.put(('cycle', state, (generation, value))),
+                         expected_target=target, cancelled=self.target_cancel, commit_preview=sys.platform == 'darwin')
 
     def backward_delete(self):
         a = self.app
@@ -706,7 +709,7 @@ class ColoPlayController:
                     self.intent.cancel(); self.cancel_navigation(); self.scroll.cancel()
         if self.usb_bridge:
             self.usb_bridge.poll()
-            if not self.usb_bridge.streaming and not self.usb_bridge.exited:
+            if self.usb_bridge.disconnected and not self.usb_bridge.exited:
                 self.usb_bridge.close();self.usb_bridge=None
                 self.usb_retry_at=time.monotonic()+3
         if (not self.usb_bridge and not self.simulator and not self.usb_paused

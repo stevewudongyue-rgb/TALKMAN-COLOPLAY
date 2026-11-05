@@ -129,12 +129,15 @@ class SimulatorTests(DesktopTests):
             self.assertNotIn('私密标题',json.dumps(state,ensure_ascii=False))
         with patch('talkman_coloplay.time.monotonic',return_value=10.7):
             self.device.active=True;self.device.commit_target()
-            self.assertTrue(self.app.input_picker.active)
-            callback=controller.begin_inputs.call_args.args[1];callback('error','无法识别位置')
-            self.app.after_cancel(self.app.input_picker.job);self.app.input_picker.tick()
+            self.assertFalse(self.app.input_picker.active)
+            controller.selected=windows[1]
+            callback=controller.cycle.call_args.args[1];callback('ok',windows[1])
+            with patch.object(self.device.highlight,'show'):
+                self.device.tick()
+            self.app.after_cancel(self.device.job);self.device.job=None
             state=self.device.snapshot()
-            self.assertTrue(state['input_selecting']);self.assertTrue(state['input_error'])
-            self.assertEqual(state['input_target'],'豆包');self.assertEqual(state['target'],'Codex')
+            self.assertFalse(state['input_selecting'])
+            self.assertEqual(state['target'],'豆包')
             self.assertNotIn('私密标题',json.dumps(state,ensure_ascii=False))
             self.app.input_picker.cancel()
         with patch('talkman_coloplay.time.monotonic',return_value=13):
@@ -142,12 +145,11 @@ class SimulatorTests(DesktopTests):
             self.device.execute('target_next')
         with patch('talkman_coloplay.time.monotonic',return_value=13.7):
             self.device.commit_target()
-            callback=controller.begin_inputs.call_args.args[1];callback('error','无法激活')
-            self.app.after_cancel(self.app.input_picker.job);self.app.input_picker.tick()
-            self.assertTrue(self.device.snapshot()['input_error'])
-            self.assertEqual(self.device.snapshot()['target'],'Codex')
-            self.device.execute('input_cancel')
-            self.assertFalse(self.device.snapshot()['target_view'])
+            callback=controller.cycle.call_args.args[1];callback('error','目标已关闭')
+            self.device.tick();self.app.after_cancel(self.device.job);self.device.job=None
+            self.assertTrue(self.device.snapshot()['target_error'])
+            self.assertFalse(self.app.input_picker.active)
+            self.assertEqual(self.device.snapshot()['target'],'豆包')
 
     def test_target_pages_and_preview_use_agent_only_order(self):
         self.target()
@@ -193,12 +195,12 @@ class SimulatorTests(DesktopTests):
         with patch('talkman_coloplay.time.monotonic',return_value=21):d.snapshot()
         c.cycle.assert_not_called()
         with patch('talkman_coloplay.time.monotonic',return_value=21.06):d.commit_target()
-        c.begin_inputs.assert_called_once()
-        self.assertEqual(c.begin_inputs.call_args.args[0],c.windows[5])
-        callback=c.begin_inputs.call_args.args[1]
+        c.cycle.assert_called_once()
+        self.assertEqual(c.cycle.call_args.kwargs['expected_target'],c.windows[5])
+        callback=c.cycle.call_args.args[1]
         with patch('talkman_coloplay.time.monotonic',return_value=21.1):d.execute('target_previous')
         self.assertFalse(self.app.input_picker.active)
-        c.cancel_inputs.assert_called_once()
+        c.begin_inputs.assert_not_called()
         self.assertEqual(d.snapshot()['target_index'],5)
         callback('error','已取消')
         with patch('talkman_coloplay.time.monotonic',return_value=21.2):d.tick()
@@ -206,7 +208,7 @@ class SimulatorTests(DesktopTests):
         self.assertFalse(d.target_view_error)
         d.cancel_navigation()
         with patch('talkman_coloplay.time.monotonic',return_value=23):d.commit_target()
-        self.assertEqual(c.begin_inputs.call_count,1)
+        self.assertEqual(c.cycle.call_count,1)
 
     def test_pause_or_disconnect_cancels_pending_target_switch(self):
         self.target();d=self.device;c=self.app.target_controller
@@ -232,7 +234,8 @@ class SimulatorTests(DesktopTests):
             self.assertEqual(d.snapshot()['target_index'],2)
             c.cycle.assert_not_called()
         with patch('talkman_coloplay.time.monotonic',return_value=41.7):d.commit_target()
-        self.assertEqual(c.begin_inputs.call_args.args[0],c.windows[1])
+        self.assertEqual(c.cycle.call_args.kwargs['expected_target'],c.windows[1])
+        c.begin_inputs.assert_not_called()
 
     def test_simulator_opens_from_settings_without_remaining_paused(self):
         self.app.open_settings()
@@ -336,6 +339,8 @@ class SimulatorTests(DesktopTests):
             self.assertEqual(a.current_text(),'保正文')
             bridge.last_input=time.monotonic()-2;bridge.poll()
             self.assertFalse(bridge.session.enabled)
+            self.assertFalse(bridge.streaming)
+            self.assertIsNone(wire.publish.call_args.args[0])
             packet(2);packet(0) # 断线恢复时先松开，不补发旧按键。
             self.assertEqual(a.current_text(),'保正文')
             packet(2);packet(0)
@@ -351,6 +356,9 @@ class SimulatorTests(DesktopTests):
         with patch('talkman_coloplay_usb.UsbWire',return_value=wire):
             bridge=UsbBridge(self.device,quiet=True)
         try:
+            self.assertFalse(bridge.streaming)
+            self.assertFalse(bridge.disconnected)
+            self.assertIsNone(wire.publish.call_args.args[0])
             self.device.intent.arm('wifi','fill',self.device.stamp(),'fill')
             wire.events.put(('wake',None,time.monotonic()))
             bridge.poll()
@@ -358,7 +366,25 @@ class SimulatorTests(DesktopTests):
             self.assertTrue(bridge.session.enabled)
             self.assertIsNone(self.device.intent.pending)
             self.assertTrue(bridge.streaming)
+            self.assertIsNotNone(wire.publish.call_args.args[0])
         finally:bridge.close()
+
+    def test_usb_waiting_for_cartridge_does_not_reconnect(self):
+        wire=Mock();wire.events=queue.Queue()
+        with patch('talkman_coloplay_usb.UsbWire',return_value=wire):
+            self.device.connect_usb(automatic=True)
+        bridge=self.device.usb_bridge
+        try:
+            self.assertFalse(bridge.streaming)
+            self.device.tick()
+            self.app.after_cancel(self.device.job);self.device.job=None
+            self.assertIs(self.device.usb_bridge,bridge)
+            wire.events.put(('closed',None,time.monotonic()))
+            self.device.tick()
+            self.app.after_cancel(self.device.job);self.device.job=None
+            self.assertIsNone(self.device.usb_bridge)
+        finally:
+            if self.device.usb_bridge is bridge:self.device.disconnect_usb()
 
     def test_automatic_usb_failure_does_not_reset_wifi_navigation(self):
         wire=Mock();wire.events=queue.Queue()
@@ -518,7 +544,7 @@ class ScreenTests(unittest.TestCase):
         r=DeviceRuntime();r.step(0,0)
         base=dict(ready=True,phase='idle',target_view=True,target_index=2,target_count=4,
                   target_page_names=['Codex','豆包','千问','Cursor'],target_page_start=1)
-        for state,expected in [(dict(target_waiting=True,target_progress=.5),'松开后选位置'),
+        for state,expected in [(dict(target_waiting=True,target_progress=.5),'松开即选定'),
                                (dict(cycling=True,target_choice='豆包'),'正在切换'),({},'旋转选目标')]:
             r.render(dict(base,**state),1000)
             self.assertIn(expected,[row['text'] for row in r.text_layout])

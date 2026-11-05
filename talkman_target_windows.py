@@ -370,6 +370,9 @@ class WindowsTargetBackend:
                         candidates.append(item)
         except Exception:
             return None
+        main = [e for e in candidates if self._element_input_role(window, e)]
+        if main:
+            return main[0] if len(main) == 1 else None
         # 排除搜索栏后按语义提示打分；并列候选拒绝，避免误填。
         def score(element: Any) -> int:
             text = " ".join(str(self._current(element, key, "") or "") for key in ("CurrentName", "CurrentAutomationId", "CurrentClassName")).casefold()
@@ -437,15 +440,18 @@ class WindowsTargetBackend:
         return rect
 
     def input_position_role(self, window, handle):
+        return self._element_input_role(window, handle[4])
+
+    def _element_input_role(self, window, element):
         from talkman_input_locations import main_input_role
-        element = handle[4]
         return main_input_role(window, self._current(element, 'CurrentAutomationId', ''),
                                [self._current(element, 'CurrentName', '')])
 
-    def resolve_main_input(self, window, role):
+    def resolve_main_input(self, window, role=None):
         from talkman_target import InputLocationError
         choices = [handle for handle, _ in self.list_inputs(window)
-                   if self.input_position_role(window, handle) == role]
+                   if self.input_position_role(window, handle) and
+                   (role is None or self.input_position_role(window, handle) == role)]
         if len(choices) != 1:
             raise InputLocationError('当前对话的主输入框无法唯一确认，请重新选择输入位置。')
         self.inspect_input(window, choices[0])
@@ -760,6 +766,11 @@ class WindowsTargetBackend:
             time.sleep(0.06)
             if remembered_focus is not None and int(user32.GetForegroundWindow() or 0) == int(valid.id):
                 current = self._find_editable(valid, focused_only=True)
+        if current is not None and self._bound_input is None and not self._element_input_role(valid, current):
+            preferred = self._find_editable(valid)
+            if preferred is not None and self._element_input_role(valid, preferred):
+                current = None
+                remembered_focus = None
         preserve = bool(
             remembered_focus
             and current is not None

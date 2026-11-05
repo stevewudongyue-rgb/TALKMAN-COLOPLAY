@@ -299,6 +299,7 @@ class TargetController(InputLocationControllerMixin):
         self._last_send_report = "尚未核验填入后的发送确认。"
         self._chosen_input = None
         self._chosen_input_role = None
+        self._input_memory = {}
         self._input_selecting = False
         self._input_draft = None
         self._input_generation = 0
@@ -492,6 +493,8 @@ class TargetController(InputLocationControllerMixin):
             self._sync_epoch += 1
             self._focus_token = None
             self.selection.set(target)
+            self._restore_input(target)
+            self._pending_send = None
         self.save()
         return target
 
@@ -843,7 +846,7 @@ class TargetController(InputLocationControllerMixin):
                 self._emit(callback, 'error', '请先确认或取消输入位置选择，本次未填入。')
                 return
             if not self._chosen_input and self.selection.metadata.get('input_required'):
-                self._emit(callback, 'error', '请重新确认输入位置；上次的临时位置不跨重启恢复。')
+                self._emit(callback, 'error', InputLocationError('请重新确认输入位置；上次的临时位置不跨重启恢复。'))
                 return
             if requested_epoch is not None and requested_epoch != self._sync_epoch:
                 self._record_fill(stage, "未完成")
@@ -967,6 +970,8 @@ class TargetController(InputLocationControllerMixin):
                 elif command == 'send_current':
                     self._send_current(callback, value)
         finally:
+            # Release cached COM/AX handles on the owning worker thread.
+            self._input_memory.clear()
             close_backend = getattr(self.backend, "close", None)
             if close_backend is not None:
                 try:

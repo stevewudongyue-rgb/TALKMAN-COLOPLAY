@@ -541,9 +541,9 @@ class MacTargetTests(unittest.TestCase):
         token = self.backend.capture_focus(self.selected)
         self.root.attributes["AXFocusedUIElement"] = self.window
         self.api.front = 123
-        self.backend._main_input = Mock(side_effect=AssertionError("应恢复已验证的控件"))
+        self.backend._main_input = Mock(return_value=None)
         self.backend.fill(self.selected, "测试", token)
-        self.backend._main_input.assert_not_called()
+        self.backend._main_input.assert_called_once()
         self.assertIn(("set", self.editor, "AXFocused", True), self.api.actions)
         self.assertEqual(self.editor.span, (20, 0))
         self.assertNotIn(("selection", 7), self.api.actions)

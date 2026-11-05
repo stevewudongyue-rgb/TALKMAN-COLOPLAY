@@ -36,6 +36,28 @@ def valid_rect(rect):
 
 
 class InputLocationControllerMixin:
+    @staticmethod
+    def _input_key(target):
+        return (*target.session_key(), target.identity, target.process_started, target.title)
+
+    def _remember_input(self):
+        # Called by the target worker: retain native handles only for this run.
+        chosen = self._chosen_input
+        if chosen is None:
+            return
+        key = self._input_key(chosen[0])
+        self._input_memory.pop(key, None)
+        self._input_memory[key] = (chosen, self._chosen_input_role)
+        while len(self._input_memory) > 24:
+            self._input_memory.pop(next(iter(self._input_memory)))
+
+    def _restore_input(self, target):
+        # No native calls on the UI thread. Revalidate before any write.
+        cached = self._input_memory.get(self._input_key(target))
+        self._chosen_input, self._chosen_input_role = cached or (None, None)
+        if cached:
+            self.selection.metadata['input_required'] = '1'
+
     @property
     def input_selecting(self):
         with self._lock:
@@ -93,12 +115,28 @@ class InputLocationControllerMixin:
         with self._lock:
             chosen = getattr(self, '_chosen_input', None)
             role = getattr(self, '_chosen_input_role', None)
+            restored = False
+            if chosen and self._input_key(chosen[0])[:-1] != self._input_key(target)[:-1]:
+                raise InputLocationError('目标窗口会话已变化，请重新选择输入位置。')
+            # A conversation change may retain the native window. Restore its own
+            # binding, or find a unique main composer; never reuse another answer box.
+            changed = bool(chosen and chosen[0].title != target.title)
+            if changed:
+                cached = self._input_memory.get(self._input_key(target))
+                if cached:
+                    self._chosen_input, self._chosen_input_role = cached
+                    chosen, role = cached
+                    self._focus_token = None
+                    restored = True
+                    changed = False
         try:
+            if changed:
+                raise InputLocationError('对话已变化，正在重新核对主输入框。')
             self._bind_chosen_input(target)
-            return False
+            return restored
         except TargetError:
             resolver = getattr(self.backend, 'resolve_main_input', None)
-            if not chosen or not role or not callable(resolver):
+            if not chosen or (not role and not changed) or not callable(resolver):
                 raise
             original = chosen[0]
             if (not original.process_started or original.session_key() != target.session_key()
@@ -106,6 +144,7 @@ class InputLocationControllerMixin:
                     or original.process_started != target.process_started):
                 raise InputLocationError('目标窗口会话已变化，请重新选择输入位置。')
         handle = resolver(target, role)
+        new_role = getattr(self.backend, 'input_position_role', lambda *_: None)(target, handle)
         rect = self.backend.inspect_input(target, handle)
         if not valid_rect(rect):
             raise InputLocationError('主输入框位置不可见，请重新选择输入位置。')
@@ -116,6 +155,8 @@ class InputLocationControllerMixin:
                     or self._input_selecting or self._stop.is_set()):
                 raise TargetError('目标已切换，本次未填入。')
             self._chosen_input = (target, InputRegion(chosen[1].number, tuple(rect), enabled), handle)
+            self._chosen_input_role = new_role
+            self._remember_input()
             self._focus_token = None
         self._bind_chosen_input(target)
         return True
@@ -174,6 +215,7 @@ class InputLocationControllerMixin:
                     self._selected = target
                     self._chosen_input = (target, region, handle)
                     self._chosen_input_role = role
+                    self._remember_input()
                     self._focus_token = None
                     self._pending_send = None
                     self._sync_epoch += 1

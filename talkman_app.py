@@ -2296,8 +2296,16 @@ class TalkManApp(TranslationUIMixin, DeliveryUIMixin, ConventionsUIMixin, AIEdit
             raise TargetError("目标窗口已失效，请重新刷新后选择。")
         if getattr(self, 'settings_window', None) and self.settings_window.winfo_exists():
             self._close_settings(self.settings_window)
-        self.input_picker.begin(target)
-        return '请回主窗口确认输入位置；确认前保留原目标。'
+        self.input_picker.cancel(quiet=True)
+        self.disarm_delivery()
+        self.sync_mode_var.set(False)
+        self.live_sync.configure(False)
+        self.target_controller.select(target)
+        self.target_picker.close()
+        self.target_label_var.set(self.target_controller.label)
+        message = '已选目标：' + self.target_controller.label + '；沿用已选位置或默认主输入框。'
+        self.status_var.set(message)
+        return message
 
     def clear_target(self):
         self.input_picker.cancel(quiet=True)

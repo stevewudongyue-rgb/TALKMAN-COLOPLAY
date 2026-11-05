@@ -27,6 +27,7 @@ class FakeTargets:
         self.selection.set(target)
         self.selection.save()
         self.selected = target
+        self.label = target.app
 
     def clear(self):
         self.selected = None
@@ -99,10 +100,8 @@ class TargetPickerTests(unittest.TestCase):
         self.pump()
 
     def confirm_position(self):
-        self.app.input_picker.confirm()
-        if self.app.input_picker.job:
-            self.app.after_cancel(self.app.input_picker.job); self.app.input_picker.job = None
-        self.app.input_picker.tick()
+        self.assertFalse(self.app.input_picker.active)
+        self.assertIsNone(self.app.input_picker.window)
 
     def test_switch_preserves_document_selection_caret_and_never_fills(self):
         a = self.app
@@ -110,7 +109,7 @@ class TargetPickerTests(unittest.TestCase):
         self.open()
         self.reply()
         self.picker.choose('1')
-        self.assertIsNone(self.service.selected)
+        self.assertEqual(self.service.selected.id, 12)
         self.confirm_position()
         self.assertEqual(self.service.selected.id, 12)
         self.assertEqual(TargetSelection.load(Path(self.temp.name)).metadata['app'], '豆包')

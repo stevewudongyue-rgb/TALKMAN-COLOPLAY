@@ -99,7 +99,7 @@ local function target_picker(m)
   local page=tostring(m.target_page or 1)..'/'..tostring(m.target_pages or 1)..' 页'
   text(tostring(m.target_index)..'/'..tostring(m.target_count)..'   '..page,120,193,150,C.muted,12)
  end
- text(m.target_waiting and '松开后选位置' or m.cycling and '正在切换' or m.target_error and '请重新旋转' or '旋转选目标',120,212,112,C.muted,14)
+ text(m.target_waiting and '松开即选定' or m.cycling and '正在切换' or m.target_error and '请重新旋转' or '旋转选目标',120,212,112,C.muted,14)
 end
 local function icon(kind,x,y,c)
  if kind=='mic' then

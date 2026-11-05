@@ -586,11 +586,12 @@ class DesktopTests(unittest.TestCase):
             self.assertEqual(d.snapshot()['target_progress'],1)
             d.active=True;a.target_controller.cycle.assert_not_called()
         with patch('talkman_coloplay.time.monotonic',return_value=11.01):
-            d.commit_target();a.target_controller.begin_inputs.assert_called_once()
-            self.assertEqual(a.target_controller.begin_inputs.call_args.args[0],windows[2])
+            d.commit_target();a.target_controller.cycle.assert_called_once()
+            self.assertEqual(a.target_controller.cycle.call_args.kwargs['expected_target'],windows[2])
+            a.target_controller.begin_inputs.assert_not_called()
             self.assertEqual(a.target_controller.selected,windows[0])
 
-    def test_mac_release_starts_position_selection_without_committing_agent(self):
+    def test_mac_release_commits_agent_without_position_selection(self):
         a,d=self.app,self.device
         target=TargetWindow(12,43,'ZCode','项目','dev.zcode.app',200.0)
         a.target_controller.close()
@@ -598,11 +599,12 @@ class DesktopTests(unittest.TestCase):
         d.target_preview=target;d.target_due=1;d.active=True
         with patch('talkman_coloplay.sys.platform','darwin'):
             d.commit_target()
-        self.assertEqual(a.target_controller.begin_inputs.call_args.args[0],target)
-        a.target_controller.cycle.assert_not_called()
+        self.assertEqual(a.target_controller.cycle.call_args.kwargs['expected_target'],target)
+        self.assertTrue(a.target_controller.cycle.call_args.kwargs['commit_preview'])
+        a.target_controller.begin_inputs.assert_not_called()
         self.assertIsNone(a.target_controller.selected)
 
-    def test_mac_wifi_position_activation_failure_keeps_old_target(self):
+    def test_mac_wifi_commit_does_not_require_background_activation(self):
         a,d=self.app,self.device
         doubao=TargetWindow(11,42,'豆包','豆包对话','com.bot.pc.doubao',100.0)
         zcode=TargetWindow(12,43,'ZCode','项目','dev.zcode.app',200.0)
@@ -627,17 +629,14 @@ class DesktopTests(unittest.TestCase):
                 self.assertEqual(a.target_controller.selected,old)
                 self.action('target_commit')
                 deadline=time.monotonic()+2
-                while not a.input_picker.error and time.monotonic()<deadline:
-                    if a.input_picker.job:a.after_cancel(a.input_picker.job);a.input_picker.job=None
-                    a.input_picker.tick()
+                while d.cycling and time.monotonic()<deadline:
+                    d.tick()
+                    if d.job:a.after_cancel(d.job);d.job=None
                     time.sleep(.01)
-                self.assertTrue(a.input_picker.error)
-                self.assertEqual(a.target_controller.selected,old)
-                a.input_picker.cancel()
-                # 再次预选从旧目标起步，不从失败草案起步。
-                a.target_controller.select(expected)
+                self.assertFalse(a.input_picker.active)
+                self.assertEqual(a.target_controller.selected,expected)
         self.assertEqual(a.current_text(),'保留编辑正文')
-        backend.list_windows.assert_not_called();self.assertEqual(backend.activate_window.call_count,3)
+        backend.list_windows.assert_not_called();backend.activate_window.assert_not_called()
         self.assertFalse(any(isinstance(c,tuple) and c[0]=='fill' for c in backend.calls))
 
     def test_highlight_switch_controls_success_feedback(self):
