@@ -544,7 +544,7 @@ class ScreenTests(unittest.TestCase):
         r=DeviceRuntime();r.step(0,0)
         base=dict(ready=True,phase='idle',target_view=True,target_index=2,target_count=4,
                   target_page_names=['Codex','豆包','千问','Cursor'],target_page_start=1)
-        for state,expected in [(dict(target_waiting=True,target_progress=.5),'松开即选定'),
+        for state,expected in [(dict(target_waiting=True,target_progress=.5),'松开后选位置'),
                                (dict(cycling=True,target_choice='豆包'),'正在切换'),({},'旋转选目标')]:
             r.render(dict(base,**state),1000)
             self.assertIn(expected,[row['text'] for row in r.text_layout])
