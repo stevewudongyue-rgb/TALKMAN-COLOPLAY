@@ -76,7 +76,9 @@ def main():
             assert list(installed.rglob('TalkMan-free-service-ca.pem'))
             opus = {path.resolve() for path in installed.rglob('TalkMan-assets/native/mac-arm64/libopus.0.dylib')}
             assert len(opus) == 1, '设备麦克风解码库未随应用打包或存在不同副本'
-            decoded = ctypes.CDLL(str(next(iter(opus))))
+            bundled_opus = app/'Contents/Frameworks/TalkMan-assets/native/mac-arm64/libopus.0.dylib'
+            assert hashlib.sha256(next(iter(opus)).read_bytes()).digest() == hashlib.sha256(bundled_opus.read_bytes()).digest()
+            decoded = ctypes.CDLL(str(bundled_opus))
             decoded.opus_get_version_string.restype = ctypes.c_char_p
             assert decoded.opus_get_version_string().startswith(b'libopus')
             assert not list(installed.rglob('*.dpapi'))
