@@ -20,6 +20,17 @@ MICROPHONE_LABELS = {0: "等待首次授权", 1: "受到系统或公司策略限
 COLOPLAY_BUNDLE_ID = "com.cololight.talkman.coloplay"
 
 
+def accessibility_permission_name(version: str | None = None) -> str:
+    """macOS 27 的 ACCESSIBILITY 文案改名，权限服务和直达入口仍相同。"""
+    version = platform.mac_ver()[0] if version is None else version
+    try:
+        if int(version.split('.')[0]) >= 27:
+            return '设备控制和数据访问'
+    except ValueError:
+        pass
+    return '辅助功能'
+
+
 def reset_microphone_permission() -> str:
     """Called only by the explicit reset button, never by startup or updater."""
     if sys.platform != "darwin":
@@ -42,8 +53,9 @@ def reset_microphone_permission() -> str:
 
 
 def settings_path(kind: str, version: str | None = None) -> str:
-    label = {"microphone": "麦克风", "accessibility": "辅助功能", "local_network": "本地网络"}[kind]
     version = platform.mac_ver()[0] if version is None else version
+    label = {"microphone": "麦克风", "accessibility": accessibility_permission_name(version),
+             "local_network": "本地网络"}[kind]
     try:
         major = int(version.split(".")[0])
         if kind == 'local_network' and major < 15:

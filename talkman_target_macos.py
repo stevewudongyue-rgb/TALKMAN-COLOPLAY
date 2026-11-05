@@ -15,10 +15,11 @@ import time
 from typing import Any, Iterable
 
 from talkman_target import TargetError, TargetWindow
+from talkman_macos_setup import settings_path
 
 
 PERMISSION_MESSAGE = (
-    "请在 Mac“系统设置 → 隐私与安全性 → 辅助功能”中允许 TalkMan，"
+    f"请在 Mac“{settings_path('accessibility')}”中允许 TALKMAN COLOPLAY，"
     "然后退出并重新打开 TalkMan，再刷新目标窗口。"
     "如果从终端运行，请允许启动它的终端或 Python。"
 )

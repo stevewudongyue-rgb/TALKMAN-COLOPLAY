@@ -5,7 +5,7 @@ from dataclasses import dataclass
 
 HEADER = struct.Struct('<IHHIHHHH')
 MAGIC = 0x53555843
-AUDIO, CONTROL, PING, PONG = 16, 18, 32, 33
+AUDIO, CONTROL, BUTTONS, STATE, HELLO, PING, PONG = 16, 18, 19, 20, 21, 32, 33
 
 
 def packet(kind, payload=b'', *, seq=0, tag=0, sub=0, priority=0):

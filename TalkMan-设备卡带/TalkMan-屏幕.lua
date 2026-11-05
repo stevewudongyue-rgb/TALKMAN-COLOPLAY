@@ -16,22 +16,31 @@ local function text(value,cx,y,maxw,c,size,bold)
  value=tostring(value or '')
  -- 桌面/USB 图流按真实字体测宽；实体位图仍使用固件规定的 8/16 字宽。
  if TMText then TMText(value,cx,y,maxw,c,size or 16,bold==true);return end
- local chars={};local width=0
- for _,cp in utf8.codes(value) do
+ local width=0;local finish=0
+ for offset,cp in utf8.codes(value) do
   local w=cp<128 and 8 or 16
   if cp>=32 and cp~=127 then
    if width+w>maxw then break end
-   chars[#chars+1]={utf8.char(cp),w};width=width+w
+   width=width+w
   end
+  finish=offset
  end
  local x=math.floor(cx-width/2)
- for _,ch in ipairs(chars) do print(ch[1],x,y,c,0,16);x=x+ch[2] end
+ for offset,cp in utf8.codes(value) do
+  if offset>finish then break end
+  if cp>=32 and cp~=127 then
+   print(utf8.char(cp),x,y,c,0,16);x=x+(cp<128 and 8 or 16)
+  end
+ end
 end
+local glyphs={T={'11111','00100','00100','00100','00100','00100','00100'},
+ M={'10001','11011','10101','10101','10001','10001','10001'}}
+local mark_positions={{'T',97},{'M',123}}
+local rain_colors={C.text,C.ink,getcolor(42,172,84),getcolor(21,94,49),C.dim}
+local target_positions={{68,59},{172,59},{172,161},{68,161}}
 local function wordmark()
  -- 点阵 T. M.；不依赖固件字体，顶部居中。
- local glyphs={T={'11111','00100','00100','00100','00100','00100','00100'},
-  M={'10001','11011','10101','10101','10001','10001','10001'}}
- for _,g in ipairs({{'T',97},{'M',123}}) do
+ for _,g in ipairs(mark_positions) do
   for row,bits in ipairs(glyphs[g[1]]) do
    for col=1,5 do
     if bits:sub(col,col)=='1' then
@@ -46,7 +55,6 @@ end
 local function rain(t)
  -- 装饰性代码雨，不代表音量或识别到的文本；仅录音时播放。
  local symbols='0123456789ABCDEF'
- local colors={C.text,C.ink,getcolor(42,172,84),getcolor(21,94,49),C.dim}
  for col=0,12 do
   local speed=18+(col*7)%17
   local head=(t*speed+col*31)%84
@@ -54,7 +62,7 @@ local function rain(t)
    local y=76+head-tail*10
    if y>=82 and y<=122 then
     local n=(col*7+math.floor(t*6)+tail*3)%#symbols+1
-    print(symbols:sub(n,n),43+col*12,math.floor(y),colors[tail+1],0,8)
+    print(symbols:sub(n,n),43+col*12,math.floor(y),rain_colors[tail+1],0,8)
    end
   end
  end
@@ -75,9 +83,8 @@ local function target_picker(m)
   local names=m.target_page_names or {m.target_choice or m.target or ''}
   local start=m.target_page_start or m.target_index
   local selected=m.target_index-start+1
-  local positions={{68,59},{172,59},{172,161},{68,161}}
   for i=1,math.min(4,#names) do
-   local x=positions[i][1];local y=positions[i][2];local active=i==selected
+   local x=target_positions[i][1];local y=target_positions[i][2];local active=i==selected
    if active then
     rectfill(x-42,y-5,x+42,y+23,C.dim)
     line(x-42,y-5,x-29,y-5,C.ink);line(x-42,y-5,x-42,y+3,C.ink)

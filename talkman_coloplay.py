@@ -36,6 +36,7 @@ class ColoPlayController:
         self.server = None
         self.discovery = None
         self.discovery_error = ''
+        self.wifi_error = ''
         self.peer = None
         self.device_build = None
         self.cartridge_offer = {}
@@ -75,6 +76,7 @@ class ColoPlayController:
         self.notice = ''
         self.notice_until = 0
         self.badge = tk.StringVar(app, '○ 未连接')
+        self.usb_status = tk.StringVar(app, '等待连接 USB')
         self.cartridge_status = tk.StringVar(app, version_status(None))
         from talkman_coloplay_focus import EditorKnobFocus
         self.editor_focus = EditorKnobFocus(self)
@@ -118,8 +120,13 @@ class ColoPlayController:
         a.set_device_controls_hidden(self.active and self.preferences['hide_device_buttons'])
 
     def configure(self, config):
+        config = validate_config(config)
+        self.disconnect_usb()
         self.stop_service()
-        self.config = validate_config(config)
+        self.config = config
+        self.usb_paused = config['connection_mode'] != 'usb'
+        self.usb_retry_at = 0
+        self.wifi_error = ''
         self.discovery_error = ''
         if self.config['enabled']:
             try:
@@ -133,9 +140,21 @@ class ColoPlayController:
                     except OSError:
                         self.discovery_error = '自动发现端口不可用，请检查其它实例或防火墙；原有连接服务仍可用。'
             except OSError as error:
-                self.app.status_var.set('COLOPLAY 服务未启动：'+str(error))
-                self.config['enabled'] = False
+                self.wifi_error = 'Wi-Fi 服务未启动，请检查本机 IP 和端口：'+str(error)
+                self.app.status_var.set(self.wifi_error)
         self.app.window_controller.sync_hotkeys()
+
+    def select_connection(self, mode, **changes):
+        """保存单一连接选择后再切换；失败也不能偷偷回到另一种通道。"""
+        if self.app.busy or self.app.voice or self.cartridge_download:
+            raise ValueError('请先结束录音、处理或卡带更新，再切换连接。')
+        config = validate_config({**self.config, **changes, 'connection_mode': mode})
+        save_config(self.path, config)
+        if self.simulator:self.simulator.close()
+        self.intent.cancel();self.cancel_navigation();self.cancel_device_send();self.scroll.cancel()
+        self.configure(config)
+        self.local_notice(self.wifi_error or ('已切换 Wi-Fi，USB 已释放；等待卡带连接。'
+                          if mode == 'wifi' else '已切换 USB，Wi-Fi 已停用。'))
 
     def stop_service(self):
         self.stop_cartridge_download()
@@ -681,6 +700,7 @@ class ColoPlayController:
                     self.target_view_until=time.monotonic()+1.8
                     self.app.status_var.set('未找到 Agent 窗口，请打开后再旋转')
             elif kind == 'connected':
+                if not self.server or self.config['connection_mode'] != 'wifi':continue
                 self.stop_cartridge_download()
                 self.peer = peer
                 self.device_build = valid_build(value)
@@ -713,7 +733,7 @@ class ColoPlayController:
                 self.usb_bridge.close();self.usb_bridge=None
                 self.usb_retry_at=time.monotonic()+3
         if (not self.usb_bridge and not self.simulator and not self.usb_paused
-                and self.config.get('usb_auto', True) and self.app.window_controller.native_enabled
+                and self.config['connection_mode'] == 'usb' and self.app.window_controller.native_enabled
                 and time.monotonic()>=self.usb_retry_at and not self.app.busy):
             self.usb_retry_at=time.monotonic()+3
             self.connect_usb(automatic=True)
@@ -740,7 +760,9 @@ class ColoPlayController:
         else:
             self.badge.set('● Wi-Fi 已连接 · 操作暂停' if self.connected() and paused else
                            '● Wi-Fi 已连接' if self.active else
-                           '○ 快捷键未就绪' if self.peer else '○ USB 待连接')
+                           '○ 快捷键未就绪' if self.peer else
+                           '○ Wi-Fi 服务未启动' if self.wifi_error else
+                           '○ Wi-Fi 等待卡带' if self.config['connection_mode'] == 'wifi' else '○ USB 待连接')
         if not self.scroll.errors.empty(): self.local_notice(self.scroll.errors.get_nowait())
         self.app.wordmark.set_connected(self.connected())
         self.app.coloplay_status.configure(style='Connected.Device.Ghost.TButton' if self.connected() else 'Device.Ghost.TButton')
@@ -776,7 +798,9 @@ class ColoPlayController:
         self.simulator=ColoPlaySimulator(self)
 
     def connect_usb(self, *, automatic=False):
+        if self.config['connection_mode'] != 'usb':return
         self.usb_paused=False
+        self.usb_status.set('正在检查 USB 接口…')
         if self.simulator:self.simulator.close()
         if self.usb_bridge:self.usb_bridge.close()
         from talkman_coloplay_usb import UsbBridge
@@ -818,40 +842,26 @@ class ColoPlayController:
         win.title('COLOPLAY · 设备设置')
         win.transient(a)
         outer = ttk.Frame(win, padding=24); outer.pack(fill='both', expand=True)
-        ttk.Label(outer,text='USB 主连接',style='SettingsField.TLabel').pack(anchor='w')
-        ttk.Label(outer,text='用一根数据线同步画面、按键和设备录音，不需要填写 IP。',style='Muted.TLabel').pack(anchor='w',pady=(4,10))
-        auto_usb=tk.BooleanVar(win,self.config.get('usb_auto',True))
-        def save_usb():
-            candidate={**self.config,'usb_auto':auto_usb.get()}
-            try:save_config(self.path,candidate)
-            except OSError:
-                auto_usb.set(self.config.get('usb_auto',True));return
-            self.config=candidate;self.usb_paused=not auto_usb.get()
-            if auto_usb.get():self.usb_retry_at=0
-        ttk.Checkbutton(outer,text='启动时自动连接 USB，拔插后重新连接',variable=auto_usb,command=save_usb).pack(anchor='w')
-        usb_actions=ttk.Frame(outer);usb_actions.pack(fill='x',pady=(10,4))
-        a.button(usb_actions,'连接 USB',self.connect_usb).pack(side='left')
-        a.button(usb_actions,'断开 USB',self.disconnect_usb,style='Ghost.TButton').pack(side='left',padx=6)
-        a.button(usb_actions,'设备模拟器',lambda:(close(),self.open_simulator()),style='Ghost.TButton').pack(side='left')
-        def export_usb():
-            folder=filedialog.askdirectory(parent=win,title='导出本机配对卡带源码')
-            if folder:
-                self.export(folder)
-                a.status_var.set('已导出本机配对源码；使用官方卡带工具编译后安装。配对配置请勿公开。')
-        a.button(outer,'首次配对 · 导出卡带源码',export_usb,style='Ghost.TButton').pack(anchor='w',pady=4)
-        ttk.Label(outer,textvariable=self.badge,style='Muted.TLabel').pack(anchor='w',pady=4)
-        ttk.Label(outer,text='录音来源在「设置 → 语音」选择。首次使用请安装本机配对的新版卡带。',style='Muted.TLabel').pack(anchor='w',pady=4)
-        box=ttk.Frame(outer)
-        def fold_wifi():
-            if box.winfo_manager():
-                box.pack_forget();wifi_toggle.configure(text='▸ Wi-Fi 备用连接与配对')
-            else:
-                box.pack(fill='both',expand=True,pady=(10,0));wifi_toggle.configure(text='▾ 收起 Wi-Fi 备用连接')
-        wifi_toggle=a.button(outer,'▸ Wi-Fi 备用连接与配对',fold_wifi,style='Ghost.TButton')
-        wifi_toggle.pack(anchor='w',pady=(12,0))
-        enabled = tk.BooleanVar(win, self.config['enabled'])
-        ttk.Checkbutton(box, text='启用 COLOPLAY 状态服务', variable=enabled).grid(row=0, columnspan=2, sticky='w')
-        ttk.Label(box, text='新版卡带只需安装一次。换网络后选择电脑当前 IP 并保存，无需重编译。', style='Muted.TLabel').grid(row=1, columnspan=2, pady=(8,12))
+        ttk.Label(outer,text='连接方式',style='SettingsField.TLabel').pack(anchor='w')
+        mode=tk.StringVar(win,self.config['connection_mode'])
+        selector=ttk.Frame(outer);selector.pack(fill='x',pady=(8,8))
+        for value,label in (('usb','USB'),('wifi','Wi-Fi')):
+            ttk.Radiobutton(selector,text=label,value=value,variable=mode,
+                            command=lambda:save()).pack(side='left',padx=(0,24))
+        ttk.Label(outer,text='选择后立即切换并记住；另一条连接会自动停用。',style='Muted.TLabel').pack(anchor='w')
+        ttk.Label(outer,textvariable=self.badge,style='Muted.TLabel').pack(anchor='w',pady=(8,4))
+        transport=ttk.Frame(outer);transport.pack(fill='x',pady=(4,8))
+        usb_box=ttk.Frame(transport)
+        ttk.Label(usb_box,text='用 USB 数据线同步圆屏状态和按键，无需填写 IP。',style='Muted.TLabel').pack(anchor='w')
+        ttk.Label(usb_box,text='首次使用需安装这台电脑的配对卡带。设备麦克风可在「语音」选择。',
+                  wraplength=500,style='Muted.TLabel').pack(anchor='w',pady=4)
+        ttk.Label(usb_box,textvariable=self.usb_status,wraplength=500,style='Muted.TLabel').pack(anchor='w',pady=4)
+        box=ttk.Frame(transport)
+        def show_mode():
+            usb_box.pack_forget();box.pack_forget()
+            (box if mode.get()=='wifi' else usb_box).pack(fill='x')
+        ttk.Label(box, text='电脑与 COLOPLAY 需在同一局域网。换网络后刷新电脑地址。',
+                  wraplength=500,style='Muted.TLabel').grid(row=1,columnspan=2,sticky='w',pady=(4,8))
         fields = {}
         addresses = local_addresses()
         for row, (name, label) in enumerate([('host','本机 IP · 这台电脑'), ('port','状态端口'), ('device_host','设备 IP · 可留空')], 2):
@@ -871,8 +881,16 @@ class ColoPlayController:
         ttk.Checkbutton(box,text='自动寻找已配对电脑（需要新版卡带）',variable=discovery).grid(row=5,columnspan=2,sticky='w',pady=(8,0))
         ttk.Label(box,text='公司网络屏蔽广播时，填写设备 IP；电脑和设备需在可互通的局域网。',style='Muted.TLabel').grid(row=6,columnspan=2,sticky='w',pady=4)
         values = {}
-        keys = ttk.LabelFrame(box, text='设备快捷键 · 可滚动查看全部动作')
-        keys.grid(row=7,columnspan=2,sticky='ew',pady=(12,0))
+        advanced=ttk.Frame(outer)
+        def fold_keys():
+            if keys.winfo_manager():
+                keys.pack_forget();key_toggle.configure(text='▸ 按键映射')
+            else:
+                keys.pack(fill='x',pady=6);key_toggle.configure(text='▾ 收起按键映射')
+        key_toggle=a.button(outer,'▸ 按键映射',fold_keys,style='Ghost.TButton')
+        key_toggle.pack(anchor='w')
+        advanced.pack(fill='x')
+        keys = ttk.LabelFrame(advanced, text='设备快捷键 · 修改后需要重新配对卡带')
         canvas=tk.Canvas(keys,width=480,height=150,highlightthickness=0,bg=a.palette['bg'])
         canvas.pack(side='left',fill='both',expand=True)
         scrollbar=ttk.Scrollbar(keys,orient='vertical',command=canvas.yview)
@@ -892,35 +910,35 @@ class ColoPlayController:
             values[action] = tk.StringVar(win,self.config['bindings'][action])
             entry=ttk.Entry(key_rows,textvariable=values[action],width=32)
             entry.grid(row=row,column=1,pady=3);entry.bind('<MouseWheel>',key_wheel)
-        note = tk.StringVar(win,self.discovery_error or '自动发现仅用于更新连接地址；首次配对和修改按键映射仍需更新卡带。')
-        ttk.Label(box,textvariable=note,wraplength=500,style='Muted.TLabel').grid(row=8,columnspan=2,pady=12)
+        note = tk.StringVar(win,self.wifi_error or self.discovery_error or '')
+        ttk.Label(outer,textvariable=note,wraplength=500,style='Muted.TLabel').pack(anchor='w',pady=8)
         def save(export=False):
             try:
-                config = validate_config(dict(enabled=enabled.get(),host=fields['host'].get().strip(),
-                    usb_auto=self.config.get('usb_auto',True),
-                    port=fields['port'].get(), token=self.config['token'],
-                    discovery=discovery.get(),device_host=fields['device_host'].get(),
-                    bindings={**self.config['bindings'], **{k:v.get() for k,v in values.items()}}, preferences=self.preferences))
+                changes=dict(bindings={**self.config['bindings'],**{k:v.get() for k,v in values.items()}})
+                if mode.get()=='wifi':
+                    changes.update(host=fields['host'].get().strip(),port=fields['port'].get(),
+                                   discovery=discovery.get(),device_host=fields['device_host'].get().strip())
+                config = validate_config({**self.config,**changes,'connection_mode':mode.get()})
                 if set(config['bindings'].values()) & set(a.shortcuts.values()):
                     raise ValueError('设备快捷键与桌面已有快捷键冲突，请换一组。')
-                self.configure(config)
-                save_config(self.path,self.config)
-                if enabled.get() and not self.server:
-                    raise ValueError('服务未启动，请检查本机地址、端口是否占用。')
-                note.set(self.discovery_error or ('已保存，新版卡带会自动连接。旧卡带须先更新一次；无需反复导出。' if discovery.get()
-                    else '已保存为固定地址模式。修改 IP 后需更新卡带；推荐开启自动寻找。'))
+                self.select_connection(mode.get(),**changes)
+                note.set(self.wifi_error or self.discovery_error or ('已切换 Wi-Fi，USB 已停用。关闭设置后可用三键更新卡带。'
+                         if mode.get()=='wifi' else '已切换 USB，Wi-Fi 已停用。等待本机配对卡带。'))
                 if export:
                     parent = filedialog.askdirectory(parent=win, title='选择卡带导出的父目录')
                     if parent:
                         dest=Path(parent)/'TalkMan-COLOPLAY卡带'
                         self.export(dest)
                         note.set('已导出到：'+str(dest))
-            except (ValueError, OSError) as error: note.set(str(error))
-        actions = ttk.Frame(box); actions.grid(row=9,columnspan=2,sticky='e')
-        a.button(actions,'保存',save).pack(side='left',padx=4)
-        a.button(actions,'首次配对 · 导出源码',lambda:save(True)).pack(side='left')
-        ttk.Label(box,text='USB 就绪时优先使用 USB；停止 USB 后，同一卡带可使用已配置的 Wi-Fi。',style='Muted.TLabel').grid(row=11,columnspan=2,pady=(8,0),sticky='w')
-        ttk.Label(box,textvariable=a.status_var,wraplength=500,style='Muted.TLabel').grid(row=12,columnspan=2,pady=8,sticky='w')
+            except (ValueError, OSError) as error:
+                mode.set(self.config['connection_mode']);note.set(str(error))
+            show_mode()
+        actions = ttk.Frame(outer); actions.pack(fill='x',pady=(4,8))
+        a.button(actions,'保存并重新连接',save).pack(side='left')
+        a.button(actions,'首次配对 · 导出源码',lambda:save(True),style='Ghost.TButton').pack(side='left',padx=8)
+        a.button(outer,'设备模拟器',lambda:(close(),self.open_simulator()),style='Ghost.TButton').pack(anchor='w')
+        ttk.Label(outer,textvariable=a.status_var,wraplength=500,style='Muted.TLabel').pack(anchor='w',pady=8)
+        show_mode()
         def close():
             win.destroy(); a.coloplay_window=None; a.window_controller.sync_hotkeys()
         win.protocol('WM_DELETE_WINDOW',close)
@@ -1037,7 +1055,7 @@ def _smoke_check_ui(directory, report_path, report):
         with socket.socket() as probe:
             probe.bind(('127.0.0.1',0)); port=probe.getsockname()[1]
         check_bindings=dict(DEFAULT_BINDINGS)
-        device.configure(dict(device.config,host='127.0.0.1',port=port,enabled=True,bindings=check_bindings))
+        device.configure(dict(device.config,host='127.0.0.1',port=port,connection_mode='wifi',bindings=check_bindings))
         device.registered=set(device.bindings())
         checked(len(device.registered)==len(ACTIONS),'全部设备动作离线预约校验就绪，不投递系统按键')
         from talkman_version import FULL_VERSION, version_record
@@ -1086,7 +1104,7 @@ def _smoke_check_ui(directory, report_path, report):
             checked(hashlib.sha1(payload).hexdigest()==download.offer['sha1'],
                     '成品附带通用更新 ROM，回环下载摘要一致')
         finally:download.close()
-        from talkman_coloplay_usb import jpeg_packet, SerialFrames
+        from talkman_coloplay_usb import state_packet, button_message
         import libusb_package
         checked(libusb_package.get_libusb1_backend() is not None,'成品包含可加载的 USB 运行库')
         app.open_settings('coloplay')
@@ -1132,7 +1150,8 @@ def _smoke_check_ui(directory, report_path, report):
         rows=sim.session.runtime.text_layout
         checked(any(row['text']=='千问' for row in rows) and any('2/2 页' in row['text'] for row in rows),
                 '成品圆屏显示目标名称和第二页序号')
-        checked(jpeg_packet(sim.session.render(),1,262144)[:4]==b'CXUS','成品可生成官方 USB 图流帧')
+        checked(state_packet(sim.session.display_state(),1,device.config)[:4]==b'CXUS',
+                '成品可生成 USB 状态帧')
         app.text.tag_remove('sel','1.0','end');app.text.mark_set('insert','end-1c')
         before=app.current_text()
         sim.canvas.event_generate('<ButtonPress-1>',x=440,y=145)

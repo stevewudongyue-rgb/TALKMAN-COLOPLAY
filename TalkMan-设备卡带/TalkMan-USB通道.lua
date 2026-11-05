@@ -1,8 +1,8 @@
--- USB 图流、配对按键及显式录音。没有 start 命令时不加载 mic、不上传音频。
+-- USB 状态、配对按键及显式录音。画面由卡带本地绘制。
 function TMUsbTransport(cfg)
  local json=require('cjson_safe')
- local u={active=false,seq=0,last=-999,oldmask=-1,frame=-1,exited=false,
-          gesture=TMUpdateControls(cfg),audio=nil,closed={}}
+ local u={active=false,seq=0,last=-999,retry_at=0,poll_at=0,hello_at=-999,oldmask=-1,frame=-1,exited=false,
+          gesture=TMUpdateControls(cfg),audio=nil,closed={},state={},received=-999}
  function u:reply(action,s)
   if airdata_send then
    airdata_send(18,json.encode({protocol='TM_AUDIO_1',action=action,session=s.id,tag=s.tag}),action=='begin' and 0 or 1,0,0)
@@ -67,29 +67,61 @@ function TMUsbTransport(cfg)
    end
   end
  end
- function u:send(mask,leave)
-  self.seq=self.seq+1
-  svcreq('ex','usb:tx:TMCP1 '..json.encode({v=1,token=cfg.token,config=cfg.config,
-   seq=self.seq,mask=mask,frame=self.frame,exit=leave==true,device_build=TM_DEVICE_BUILD})..'\n')
+  function u:send(mask,leave)
+   if not airdata_send or not airdata_ready or not airdata_ready() then return false end
+   local next_seq=self.seq+1
+   local data=json.encode({v=1,token=cfg.token,config=cfg.config,
+    seq=next_seq,mask=mask,frame=self.frame,exit=leave==true,device_build=TM_DEVICE_BUILD})
+   if type(data)~='string' or #data>512 or not airdata_send(19,data,1,0,0) then return false end
+   self.seq=next_seq
+   return true
  end
  function u:step(t,force)
-  local fresh=false
-  if img_airinfo then
-   local w,h,id,sz,age=img_airinfo()
-   if w==240 and h==240 and age and age<1500 then fresh=true;self.frame=id end
+  -- 未就绪时不触碰固件队列；拔线后同时丢弃旧状态，等待新的配对帧。
+  if not airdata_ready or not airdata_ready() then
+   if self.active or self.frame>=0 then
+    self:stop_audio();self.active=false;self.frame=-1;self.received=-999;self.state={}
+    self.gesture=TMUpdateControls(cfg);self.oldmask=-1;self.retry_at=0;self.poll_at=0
+   end
+   return false
+  end
+  -- USB ready 只代表固件链路存在，不代表有电脑程序消费队列。
+  -- 离线只低频读探测包；必须由已配对桌面主动握手，不主动写唤醒包。
+  local hello=false
+  if airdata_get and (self.active or t>=self.poll_at) then
+   self.poll_at=t+100
+   for _=1,8 do
+    local d,ty=airdata_get(0)
+    if d==nil then break end
+    if ty==21 and type(d)=='string' and #d<=512 then
+     local m=json.decode(d)
+     if type(m)=='table' and m.protocol=='TM_USB_HELLO_1' and m.v==1 and
+        cfg.token~='' and m.token==cfg.token and m.config==cfg.config then hello=true end
+    elseif ty==20 and type(d)=='string' and #d<=4096 then
+     local m=json.decode(d)
+     if type(m)=='table' and m.v==1 and cfg.token~='' and
+        m.token==cfg.token and m.config==cfg.config and type(m.state)=='table' and
+        type(m.frame)=='number' and m.frame%1==0 and m.frame>=0 and m.frame<65536 then
+      self.state=m.state;self.frame=m.frame;self.received=t
+     end
+    end
+   end
   end
   local before=self.active
-  self.active=(fresh or force==true) and not self.exited
+  self.active=self.frame>=0 and t-self.received<1500 and not self.exited
   if before~=self.active then
    self.gesture=TMUpdateControls(cfg);self.oldmask=-1
   end
   if not self.active then
    self:stop_audio()
-   -- 重开卡带但主机已停图时，零按键报文只唤醒图流，不执行操作。
-   if not self.exited and airdata_ready and airdata_ready() and t-self.last>=250 then
+   if self.frame>=0 then self.frame=-1;self.received=-999;self.state={} end
+   -- 每个有效探测最多应答一次；失败或队列忙时等待电脑下一次探测。
+   if hello and not self.exited and t-self.hello_at>=250 then
+    self.hello_at=t
     local held=false
     for i=0,7 do if btn(i) then held=true end end
-    if not held then self.frame=-1;self:send(0,false);self.last=t end
+    local queued=airdata_depth and airdata_depth('tx',1) or 0
+    if not held and (type(queued)~='number' or queued==0) then self:send(0,false) end
    end
    return false
   end
@@ -100,18 +132,30 @@ function TMUsbTransport(cfg)
     self:stop_audio();self:send(0,true);self.exited=true;self.active=false;toidle();return true
    end
   end
-  if mask~=self.oldmask or t-self.last>=50 then
-   self:send(mask,false);self.oldmask=mask;self.last=t
+   if t>=self.retry_at and (mask~=self.oldmask or t-self.last>=50) then
+    if self:send(mask,false) then self.oldmask=mask;self.last=t;self.retry_at=0
+    else self.retry_at=t+50 end
   end
   self:audio_step(t)
   return true
  end
  function u:draw()
-  if self.active and img_scrair then return img_scrair() end
-  return false
+  if not self.active then return false end
+  local m=self.state
+  m.now=stat(12);m.configured=true;m.device_build=TM_DEVICE_BUILD
+  m.buttons={};for i=0,7 do m.buttons[i]=btn(i) end
+  m.modifier=m.buttons[3];m.ul=self.gesture.ul;m.exit_ms=cfg.exit_ms
+  m.hold_short=self.gesture.knob~=nil and m.now-self.gesture.knob<cfg.fill_ms
+  m.fill_progress=self.gesture.knob~=nil and m.pending and
+   math.min(1,math.max(0,(m.now-self.gesture.knob)/cfg.fill_ms)) or nil
+  m.fill_cancelled=self.gesture.knob~=nil and self.gesture.cancelled
+  m.send_current=self.gesture.knob~=nil and self.gesture.send_combo and not self.gesture.cancelled
+  m.inactive=self.exited
+  TMDraw(m);return true
  end
  function u:resume()
-  self.exited=false;self.gesture=TMUpdateControls(cfg);self.oldmask=-1;self.last=-999
+  self.exited=false;self.gesture=TMUpdateControls(cfg);self.oldmask=-1;self.last=-999;self.retry_at=0;self.poll_at=0;self.hello_at=-999
+  self.active=false;self.received=-999;self.frame=-1;self.state={}
  end
  return u
 end

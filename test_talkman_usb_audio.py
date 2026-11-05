@@ -151,7 +151,7 @@ class FirmwareAudioTests(unittest.TestCase):
         from lupa.lua54 import LuaRuntime
         self.lua=LuaRuntime(unpack_returned_tuples=True)
         g=self.lua.globals()
-        g.decode=lambda s:self.lua.table_from(json.loads(s))
+        g.decode=lambda s:self.lua.table_from(json.loads(s),recursive=True)
         self.messages=[]
         g.encode=lambda t:json.dumps(dict(t))
         g.emit=lambda ty,data,prio,tag,sub:self.messages.append((ty,json.loads(data) if ty==18 else data,prio,tag,sub)) or True
@@ -159,15 +159,18 @@ class FirmwareAudioTests(unittest.TestCase):
         package.preload.cjson_safe=function() return {decode=decode,encode=encode} end
         function TMUpdateControls() return {step=function() return {} end} end
         function btn() return false end
-        function svcreq() end
+        function svcreq() error('CDC must not be used') end
         loads=0;clears=0;reads=0;cmds={};fresh=true
         function usemod() loads=loads+1;return true end
         function statctl() end
         function micpoll(mode) if mode==1 then clears=clears+1 else reads=reads+1;return 'abc' end end
-        function airdata_get() local v=table.remove(cmds,1);if v then return v,18 end end
+        function airdata_get(channel)
+         if channel==0 then
+          if fresh then return '{"v":1,"token":"test","config":"binding","frame":7,"state":{"ready":true}}',20 end
+         else local v=table.remove(cmds,1);if v then return v,18 end end
+        end
         function airdata_ready() return true end
         function airdata_send(...) return emit(...) end
-        function img_airinfo() return 240,240,7,100,fresh and 0 or 2000 end
         ''')
         self.lua.execute(Path('TalkMan-设备卡带/TalkMan-USB通道.lua').read_text('utf-8'))
         self.lua.execute("cfg={token='test',config='binding'};u=TMUsbTransport(cfg)")
@@ -186,16 +189,19 @@ class FirmwareAudioTests(unittest.TestCase):
         self.command('start');self.step(20)
         self.assertEqual(self.lua.globals().loads,1)
         self.assertEqual([m[1]['action'] for m in self.messages if m[0]==18],['started','begin'])
-        self.assertEqual(self.messages[-1],(16,'abc',0,0,77))
-        self.command('stop');self.step(30);count=len(self.messages)
+        self.assertEqual([m for m in self.messages if m[0]==16][-1],(16,'abc',0,0,77))
+        self.command('stop');self.step(30)
+        count=len([m for m in self.messages if m[0] in (16,18)])
         self.command('start');self.step(40);self.step(100)
-        self.assertEqual(len(self.messages),count)
+        self.assertEqual(len([m for m in self.messages if m[0] in (16,18)]),count)
 
-    def test_lease_and_loss_of_image_stop_upload(self):
+    def test_lease_and_loss_of_state_stop_upload(self):
         self.command('start');self.step(0);self.step(1501)
         self.assertIsNone(self.lua.globals().u.audio)
         self.command('start',session='b'*32);self.step(2000)
-        self.lua.globals().fresh=False;self.step(2050)
+        self.lua.globals().fresh=False
+        self.lua.globals().u.received=0
+        self.step(2050)
         self.assertIsNone(self.lua.globals().u.audio)
 
     def test_stop_before_start_prevents_delayed_start(self):

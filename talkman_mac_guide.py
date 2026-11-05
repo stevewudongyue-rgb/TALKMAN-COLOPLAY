@@ -5,7 +5,7 @@ import sys
 import tkinter as tk
 from tkinter import ttk
 
-from talkman_macos_setup import check_permissions, open_permission_settings
+from talkman_macos_setup import check_permissions, open_permission_settings, accessibility_permission_name
 from talkman_voice import prepare_microphone_permission, VoicePermissionError
 from talkman_coloplay_discovery import local_addresses
 from talkman_coloplay_protocol import validate_config, save_config
@@ -150,8 +150,10 @@ class MacSetupGuide:
         self.label('广播受限时填设备 IP；换网后刷新地址并保存。\n首次配对需导出源码、编译 ROM 后安装；无设备可跳过。', muted=True)
 
     def page_4(self):
-        self.label('要把文字填入其他应用，需要允许“辅助功能”。只在 TALKMAN COLOPLAY 内编辑或复制文字，可以跳过。')
-        self.buttons((('打开辅助功能设置', lambda: self.open_permission('accessibility')),))
+        name=accessibility_permission_name()
+        self.label(f'要把文字填入其他应用，需要允许“{name}”。只在 TALKMAN COLOPLAY 内编辑或复制文字，可以跳过。')
+        if name!='辅助功能':self.label('这是原“辅助功能”授权的新名称，打开的是同一项权限。',muted=True)
+        self.buttons(((f'打开{name}设置', lambda: self.open_permission('accessibility')),))
         self.label('开启 TALKMAN COLOPLAY；列表里没有时，点“＋”从“应用程序”添加。返回这里会自动检查。', muted=True)
         self.label('打开豆包等应用，再刷新 TalkMan 的目标列表。首次可先点击对方输入框，再填入；填入不会自动发送。', muted=True)
 
@@ -170,7 +172,7 @@ class MacSetupGuide:
     def save_connection(self):
         d = self.app.coloplay
         try:
-            cfg = validate_config({**d.config, 'enabled': True, 'host': self.host.get().strip(),
+            cfg = validate_config({**d.config, 'connection_mode': 'wifi', 'host': self.host.get().strip(),
                                    'device_host': self.device_host.get().strip(), 'discovery': self.discovery.get()})
             if set(cfg['bindings'].values()) & set(self.app.shortcuts.values()):
                 raise ValueError('设备快捷键有冲突，请到高级连接调整。')

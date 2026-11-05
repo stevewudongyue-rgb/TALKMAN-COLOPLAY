@@ -65,9 +65,11 @@ class MacSetupTests(unittest.TestCase):
 
     def test_paths_adapt_to_preference_and_settings_generations(self):
         self.assertIn("系统偏好设置", setup.settings_path("microphone", "12.7"))
-        for version in ("14.8", "15.7", "26.1", "27.0", "未知"):
+        for version in ("14.8", "15.7", "26.1", "未知"):
             with self.subTest(version=version):
                 self.assertEqual(setup.settings_path("accessibility", version), "系统设置 → 隐私与安全性 → 辅助功能")
+        self.assertEqual(setup.settings_path('accessibility','27.0.1'),
+                         '系统设置 → 隐私与安全性 → 设备控制和数据访问')
 
     def test_windows_status_and_open_never_touch_native_api(self):
         with patch.object(setup.sys, "platform", "win32"), patch.object(setup, "_mac_microphone_permission") as microphone, \

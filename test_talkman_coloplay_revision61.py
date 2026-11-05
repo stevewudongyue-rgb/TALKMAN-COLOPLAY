@@ -94,7 +94,10 @@ class VersionTests(unittest.TestCase):
     def test_usb_rejects_unpaired_version_and_emits_only_changed_build(self):
         wire=object.__new__(UsbWire);wire.config=validate_config({});wire.frames={};wire.last_seq=None;wire.put=Mock()
         message=dict(v=1,token=wire.config['token'],config=config_id(wire.config),seq=1,mask=0,frame=-1,device_build=61)
-        wire.validate(dict(message,token='wrong'),0);wire.put.assert_not_called()
+        wire.validate(dict(message,token='wrong'),0)
+        self.assertEqual(wire.put.call_args.args[0],'status')
+        self.assertFalse(hasattr(wire,'device_build'))
+        wire.put.reset_mock()
         wire.validate(message,0);wire.put.assert_called_once_with('device_build',61)
         wire.validate(message,0);self.assertEqual(wire.put.call_count,1)
         wire.validate(dict(message,device_build=True),0);wire.put.assert_called_with('device_build',None)
@@ -135,6 +138,8 @@ class Desktop61Tests(unittest.TestCase):
 
     def test_connection_version_clears_and_stale_disconnect_does_not_override(self):
         d=self.device
+        d.config=validate_config({**d.config,'connection_mode':'wifi'})
+        d.server=Mock()
         d.events.put(('connected','old',59));self.tick()
         self.assertEqual(d.cartridge_version(),59)
         d.events.put(('connected','new',61));d.events.put(('disconnected','old',None));self.tick()

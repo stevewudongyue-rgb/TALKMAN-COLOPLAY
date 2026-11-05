@@ -13,7 +13,8 @@ from tkinter import ttk
 from talkman_asr import (ASRSettings, PROVIDERS, asr_keys_remembered, load_asr_settings,
                          save_asr_settings, validate)
 from talkman_credentials import secure_storage_supported
-from talkman_macos_setup import check_permissions, open_permission_settings, reset_microphone_permission
+from talkman_macos_setup import (check_permissions, open_permission_settings, reset_microphone_permission,
+                                accessibility_permission_name)
 from talkman_voice import prepare_microphone_permission, VoicePermissionError
 from talkman_qwen import QwenError, QwenSettings, load_settings, qwen_key_remembered, save_settings
 from talkman_shortcuts import (
@@ -282,7 +283,7 @@ class SettingsPanelMixin:
         actions.pack(fill='x', pady=(4, 12))
         self.button(actions, '保存设备偏好', save).pack(side='left')
         self.button(actions, '恢复默认', restore, style='Ghost.TButton').pack(side='left', padx=8)
-        self.button(box, 'USB 连接与 Wi-Fi 备用…', connection, style='Ghost.TButton').pack(anchor='w')
+        self.button(box, '连接方式 · USB / Wi-Fi…', connection, style='Ghost.TButton').pack(anchor='w')
         def tutorial():
             self._close_settings(win)
             device.show_guide()
@@ -432,8 +433,9 @@ class SettingsPanelMixin:
         ttk.Label(box, text=NOTICE+' 录音与待处理文字会发送到在线服务。', style='Muted.TLabel', wraplength=580).pack(anchor='w', pady=(0, 18))
 
     def _build_mac_setup(self, box, win):
+        access_name = accessibility_permission_name()
         self._settings_description(box, "一次准备，按需授权",
-            "建议先把 TalkMan.app 放到“应用程序”并从那里启动。麦克风用于录音；辅助功能只用于填入其他应用，可稍后设置。")
+            f"建议先把 TalkMan.app 放到“应用程序”并从那里启动。麦克风用于录音；{access_name}用于填入其他应用，可稍后设置。")
         feedback = tk.StringVar(value="检测不会录音或访问其他应用正文。系统授权需由你亲自确认。")
         self.mac_setup_feedback = feedback
         self._settings_footer(box, win, feedback)
@@ -479,7 +481,8 @@ class SettingsPanelMixin:
 
         for title, description, kind in (
             ("麦克风", "只在你开始录音时使用，不需要屏幕录制或语音识别权限。", "microphone"),
-            ("辅助功能（可选）", "让 TALKMAN COLOPLAY 聚焦 Agent 输入框并粘贴；不会按回车发送。", "accessibility"),
+            (access_name+"（可选）", "让 TALKMAN COLOPLAY 聚焦 Agent 输入框并粘贴；填入本身不会发送。"
+             + ("这是原“辅助功能”授权的新名称。" if access_name!='辅助功能' else ''), "accessibility"),
         ):
             self._settings_heading(box, title)
             ttk.Label(box, text=description, style="Muted.TLabel", wraplength=585).pack(anchor="w", pady=(0, 8))
@@ -489,7 +492,7 @@ class SettingsPanelMixin:
                 microphone_button = self.button(row, "授权麦克风", allow_microphone)
                 microphone_button.pack(side="left", padx=(0, 8))
                 self.mac_setup_microphone_button = microphone_button
-            self.button(row, "麦克风设置" if kind == "microphone" else "辅助功能设置",
+            self.button(row, "麦克风设置" if kind == "microphone" else access_name+"设置",
                         lambda kind=kind: open_page(kind)).pack(side="left")
 
         self._settings_heading(box, "升级后录音无声")
@@ -507,7 +510,7 @@ class SettingsPanelMixin:
             if not armed[0]:
                 armed[0] = True
                 reset_button.configure(text="确认重置（需退出重开）")
-                feedback.set("只重置 TALKMAN COLOPLAY 的麦克风授权；不改辅助功能、Key 或正文。再次点击确认。")
+                feedback.set(f"只重置 TALKMAN COLOPLAY 的麦克风授权；不改{access_name}、Key 或正文。再次点击确认。")
                 return
             self._mic_reset_pending = True
             reset_button.state(['disabled'])
@@ -530,7 +533,7 @@ class SettingsPanelMixin:
         reset_button = self.button(box, "重置本应用麦克风授权", reset_microphone, style="Ghost.TButton")
         reset_button.pack(anchor="w", pady=(0, 16))
         self.mac_setup_reset_button = reset_button
-        ttk.Label(box, text="辅助功能列表中没有 TalkMan？点“＋”添加正在运行的应用。若仍未生效，退出后从“应用程序”重新打开。",
+        ttk.Label(box, text=f"“{access_name}”列表中没有 TALKMAN COLOPLAY？点“＋”添加正在运行的应用。若仍未生效，退出后从“应用程序”重新打开。",
                   style="Muted.TLabel", wraplength=585).pack(anchor="w")
 
         job = [None]
@@ -557,7 +560,7 @@ class SettingsPanelMixin:
                     feedback.set("麦克风已允许；回到正文后再开始录音。" if allowed else message)
                 status = check_permissions()
                 location = str(status.app) if status.app else "源码启动：权限可能归属终端或 Python；建议使用 TalkMan.app。"
-                info.set(f"macOS {status.version}\n麦克风：{status.microphone_label}    辅助功能：{status.accessibility_label}\n运行位置：{location}")
+                info.set(f"macOS {status.version}\n麦克风：{status.microphone_label}    {accessibility_permission_name(status.version)}：{status.accessibility_label}\n运行位置：{location}")
                 job[0] = win.after(1000, poll)
             except tk.TclError:
                 return

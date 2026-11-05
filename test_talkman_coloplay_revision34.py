@@ -157,7 +157,14 @@ class EditorTests(unittest.TestCase):
         from tkinter import ttk
         a=self.app;self.device.connection_settings();a.update()
         win=a.coloplay_window
-        frames=[w for w in win.winfo_children()[0].winfo_children() if isinstance(w,ttk.LabelFrame)]
+        def descendants(w):
+            for child in w.winfo_children():
+                yield child
+                yield from descendants(child)
+        buttons=[w for w in descendants(win) if w.winfo_class()=='TButton' or hasattr(w,'invoke')]
+        next(w for w in buttons if str(w.cget('text'))=='▸ 按键映射').invoke()
+        a.update()
+        frames=[w for w in descendants(win) if isinstance(w,ttk.LabelFrame)]
         self.assertEqual(len(frames),1)
         self.assertLess(win.winfo_reqheight(),760)
         canvas=frames[0].winfo_children()[0]

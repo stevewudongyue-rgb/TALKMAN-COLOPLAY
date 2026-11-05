@@ -324,7 +324,7 @@ class DesktopTests(unittest.TestCase):
         self.ready.stop()
         with patch('talkman_coloplay.StateServer', side_effect=lambda host, port, *args, **kwargs:
                    StateServer(host, 0, *args, **kwargs)):
-            d.configure(dict(d.config, enabled=True, host='127.0.0.1', discovery=False))
+            d.configure(dict(d.config, connection_mode='wifi', host='127.0.0.1', discovery=False))
         d.registered = set(d.bindings())
         server = d.server
         a.set_text('设置期间保留正文')

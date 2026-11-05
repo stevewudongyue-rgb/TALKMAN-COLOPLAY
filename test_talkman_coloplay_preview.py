@@ -10,7 +10,8 @@ from unittest.mock import Mock, patch
 
 from PIL import Image
 from talkman_coloplay_preview import DeviceRuntime, LocalDeviceSession
-from talkman_coloplay_usb import SerialFrames, UsbWire, UsbBridge, jpeg_packet, select_pair, display_matches
+from talkman_airdata import BUTTONS, STATE, AUDIO, Frame, Frames, packet
+from talkman_coloplay_usb import UsbWire, UsbBridge, button_message, state_packet, select_device, display_matches
 from talkman_coloplay_protocol import config_id, validate_config
 from talkman_target import TargetWindow
 from test_talkman_coloplay import DesktopTests
@@ -429,25 +430,40 @@ class UsbProtocolTests(unittest.TestCase):
         for mask in (1,2,4,16,32,64):self.assertFalse(display_matches(base,pending,mask))
         self.assertFalse(display_matches(base,(2,'新文字')+pending[2:],64))
 
-    def test_split_coalesced_noise_invalid_and_oversized_serial(self):
-        p=SerialFrames()
-        self.assertEqual(p.feed(b'log\nTMCP1 {"mask":'),[])
-        self.assertEqual(p.feed(b'0}\nTMCP1 {"mask":1}\n'),[{'mask':0},{'mask':1}])
-        self.assertEqual(p.feed(b'TMCP1 invalid\nTMCP1 '+b'x'*3000),[])
-        self.assertEqual(p.feed(b'\nTMCP1 {"mask":2}\n'),[{'mask':2}])
+    def test_split_button_frames_and_reject_unrelated_or_invalid_data(self):
+        data=json.dumps({'mask':4}).encode()
+        raw=packet(BUTTONS,data,priority=1)
+        parser=Frames()
+        self.assertEqual(parser.feed(b'noise'+raw[:9]),[])
+        parsed=parser.feed(raw[9:]+raw)
+        self.assertEqual([button_message(frame) for frame in parsed],[{'mask':4},{'mask':4}])
+        for frame in (Frame(AUDIO,1,0,0,0,data),Frame(BUTTONS,0,0,0,0,data),
+                      Frame(BUTTONS,1,0,1,0,data),Frame(BUTTONS,1,0,0,0,b'\xff'),
+                      Frame(BUTTONS,1,0,0,0,b'[]'),Frame(BUTTONS,1,0,0,0,b'x'*513)):
+            self.assertIsNone(button_message(frame))
 
-    def test_jpeg_header_crc_frame_wrap_and_dimensions(self):
-        import binascii
-        raw=jpeg_packet(Image.new('RGB',(240,240),'green'),65537,65536)
-        h=struct.unpack('<IHHIHHHH',raw[:20])
-        self.assertEqual(h[:3],(0x53555843,1,1));self.assertEqual(h[3],len(raw)-20)
-        self.assertEqual(h[4:7],(1,240,240))
-        self.assertEqual(h[7],binascii.crc_hqx(raw[20:],0xffff))
-        self.assertEqual(Image.open(io.BytesIO(raw[20:])).size,(240,240))
-        with self.assertRaises(ValueError):jpeg_packet(Image.new('RGB',(240,240)),1,10)
+    def test_state_packet_excludes_private_content_and_tracks_frame(self):
+        config=validate_config({})
+        raw=state_packet(dict(ready=True,phase='recording',target='豆包',
+                              target_page_names=['豆包'],title='录音中',
+                              confirmation='private-token',action_context='private-context',
+                              text='private-draft'),65537,config)
+        frame=Frames().feed(raw)[0]
+        self.assertEqual((frame.kind,frame.priority,frame.seq),(STATE,0,1))
+        message=json.loads(frame.data)
+        self.assertEqual(message['frame'],1)
+        self.assertEqual(message['state']['target_page_names'],['豆包'])
+        self.assertNotIn('private-draft',frame.data.decode())
+        self.assertNotIn('private-context',frame.data.decode())
+        self.assertNotIn('private-token',frame.data.decode())
+        long_frame=Frames().feed(state_packet(dict(title='x'*5000),1,config))[0]
+        self.assertEqual(len(json.loads(long_frame.data)['state']['title']),120)
+        names=Frames().feed(state_packet(dict(target_page_names=['x'*5000]*100),1,config))[0]
+        self.assertEqual(json.loads(names.data)['state']['target_page_names'],['x'*40]*4)
 
-    def test_serial_auth_fresh_image_replay_gap_and_types(self):
+    def test_button_auth_fresh_state_replay_gap_and_types(self):
         wire=UsbWire.__new__(UsbWire);wire.config=validate_config({});wire.frames={100:10};wire.last_seq=None
+        wire.events=queue.Queue()
         m=dict(v=1,token=wire.config['token'],config=config_id(wire.config),seq=1,mask=0,frame=100)
         self.assertEqual(wire.validate(m,10.1),('reset',0))
         self.assertIsNone(wire.validate(m,10.1))
@@ -463,13 +479,35 @@ class UsbProtocolTests(unittest.TestCase):
         self.assertFalse(display_matches(old,new[:4]+('idle',),2))
         self.assertFalse(display_matches(old,(2,'新一轮',6,8,'recording'),4))
 
-    def test_unique_device_pair_and_wrong_identity(self):
-        dev=lambda s:SimpleNamespace(serial_number=s)
-        port=lambda s:SimpleNamespace(serial_number=s,vid=0x303a,pid=0x4005)
-        d,p=dev('one'),port('one')
-        self.assertEqual(select_pair([d],[p]),(d,p))
-        for ds,ps in [([d],[port('two')]),([d,dev('two')],[p,port('two')])]:
-            with self.assertRaises(ValueError):select_pair(ds,ps)
+    def test_unique_usb_device_does_not_require_cdc_identity(self):
+        device=SimpleNamespace(idVendor=0x303a,idProduct=0x4005)
+        self.assertIs(select_device([device]),device)
+        for devices in ([],[device,SimpleNamespace(idVendor=0x303a,idProduct=0x4005)]):
+            with self.assertRaises(ValueError):select_device(devices)
+
+    def test_button_channel_wakes_then_reports_verified_mask(self):
+        wire=UsbWire.__new__(UsbWire)
+        wire.config=validate_config({});wire.frames={7:10};wire.frame_stamps={7:('screen',)}
+        wire.last_seq=None;wire.paired=False;wire.events=queue.Queue()
+        now=10.1
+        def deliver(**changes):
+            message=dict(v=1,token=wire.config['token'],config=config_id(wire.config),
+                         seq=1,mask=0,frame=-1,device_build=66)
+            message.update(changes)
+            raw=packet(BUTTONS,json.dumps(message).encode(),priority=1)
+            wire.receive_buttons(Frames().feed(raw)[0],now)
+        deliver(token='wrong')
+        self.assertEqual(wire.events.get_nowait()[0],'status')
+        self.assertTrue(wire.events.empty())
+        self.assertFalse(wire.paired)
+        deliver()
+        self.assertEqual(wire.events.get_nowait()[:2],('device_build',66))
+        self.assertEqual(wire.events.get_nowait()[:2],('wake',None))
+        deliver(seq=2,mask=4,frame=7)
+        kind,value,_=wire.events.get_nowait()
+        self.assertEqual((kind,value),('reset',dict(mask=4,stamp=('screen',))))
+        deliver(seq=2,mask=4,frame=7)
+        self.assertTrue(wire.events.empty())
 
     def test_lua_usb_cartridge_emits_mask_and_frame_without_network_or_hid(self):
         from lupa.lua54 import LuaRuntime
@@ -480,24 +518,75 @@ class UsbProtocolTests(unittest.TestCase):
         src=builder.flatten(Path('TalkMan-设备卡带/TalkMan-usb.clx')).split('__lua__\n',1)[1]
         lua=LuaRuntime(unpack_returned_tuples=True)
         lua.execute('''
-        timer=0;mask=0;frames={};requests={}
+        timer=0;mask=0;frames={};emissions={}
         function stat(i) return timer end
         function btn(i) return mask & (1<<i) ~= 0 end
         function btnpcfg() end
         function getcolor(r,g,b) return 0 end
-        function img_airinfo() return 240,240,7,1000,20 end
+        incoming={}
+        function airdata_get(channel)
+         if channel==0 then local v=table.remove(incoming,1);if v then return v,20 end end
+        end
         function toidle() exited=true end
-        function svcreq(kind,data) requests[#requests+1]={kind,data} end
-        package.preload.cjson_safe=function() return {encode=function(t) frames[#frames+1]=t;return '{}' end} end
+        function svcreq() error('CDC must not be used') end
+        function airdata_ready() return true end
+        blocked=false
+        function airdata_send(kind,data,priority,tag,sub)
+         if blocked then return false end
+         emissions[#emissions+1]={kind,priority,tag,sub};return true
+        end
+        package.preload.cjson_safe=function() return {
+         encode=function(t) frames[#frames+1]=t;return '{}' end,
+         decode=function(d) return {v=1,token=d=='bad' and 'wrong' or 'test',config='binding',
+          frame=7,state={ready=true,phase='idle',target='豆包'}} end
+        } end
         ''')
-        lua.execute(src);lua.execute('_init();_update();timer=100;mask=4;_update()')
+        lua.execute(src);lua.execute("TM_CONFIG.token='test';TM_CONFIG.config='binding';incoming[1]='state';_init();_update();timer=100;mask=4;_update()")
+        lua.execute('TMDraw=function(m) rendered=m end;_draw()')
+        self.assertEqual(lua.globals().rendered.target,'豆包')
+        self.assertTrue(lua.globals().rendered.ready)
         frames=lua.globals().frames
         self.assertEqual(frames[1].mask,0);self.assertEqual(frames[2].mask,4)
         self.assertEqual(frames[2].frame,7)
-        self.assertTrue(all(v[1]=='ex' and v[2].startswith('usb:tx:TMCP1 ') for v in lua.globals().requests.values()))
-        lua.execute('timer=200;mask=1;_update();timer=5300;_update()')
+        self.assertTrue(all(tuple(v.values())==(19,1,0,0) for v in lua.globals().emissions.values()))
+        lua.execute('blocked=true;timer=150;mask=8;_update();blocked=false;timer=151;_update()')
+        attempts=len(lua.globals().frames)
+        lua.execute('timer=199;_update()')
+        self.assertEqual(len(lua.globals().frames), attempts, '失败后等待50ms，不逐帧重试')
+        lua.execute('timer=200;_update()')
+        self.assertEqual(frames[len(frames)-1].seq,frames[len(frames)].seq)
+        self.assertEqual(frames[len(frames)].mask,8)
+        lua.execute("timer=200;mask=1;_update();timer=5300;incoming[1]='state';_update()")
         self.assertTrue(lua.globals().exited)
         self.assertTrue(frames[len(frames)]['exit'])
+
+    def test_usb_cartridge_rejects_unpaired_and_expired_state(self):
+        from lupa.lua54 import LuaRuntime
+        from pathlib import Path
+        import importlib.util
+        spec=importlib.util.spec_from_file_location('builder','TalkMan-构建卡带.py')
+        builder=importlib.util.module_from_spec(spec);spec.loader.exec_module(builder)
+        src=builder.flatten(Path('TalkMan-设备卡带/TalkMan-usb.clx')).split('__lua__\n',1)[1]
+        lua=LuaRuntime(unpack_returned_tuples=True)
+        lua.execute('''
+        timer=0;incoming={'bad'}
+        function stat() return timer end
+        function btn() return false end
+        function btnpcfg() end
+        function airdata_ready() return true end
+        function airdata_send() return true end
+        function airdata_get(ch) if ch==0 then local v=table.remove(incoming,1);if v then return v,20 end end end
+        function getcolor() return 0 end
+        package.preload.cjson_safe=function() return {encode=function() return '{}' end,
+         decode=function(d) return {v=1,token=d,config='binding',frame=7,state={ready=true}} end} end
+        ''')
+        lua.execute(src)
+        lua.execute("TMDraw=function(m) rendered=m end;TM_CONFIG.token='test';TM_CONFIG.config='binding';_init();_update();_draw()")
+        self.assertFalse(lua.globals().rendered.ready)
+        lua.execute("incoming[1]='test';timer=100;_update();_draw()")
+        self.assertTrue(lua.globals().rendered.ready)
+        lua.execute('timer=1601;_update();_draw()')
+        self.assertFalse(lua.globals().rendered.ready)
 
 
 class ScreenTests(unittest.TestCase):

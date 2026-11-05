@@ -129,7 +129,7 @@ class MacTargetTests(unittest.TestCase):
     def test_permissions_rejected_before_enumeration(self):
         self.api.allowed = False
         self.api.applications = Mock()
-        with self.assertRaisesRegex(target.TargetError, "隐私与安全性.*辅助功能"):
+        with self.assertRaisesRegex(target.TargetError, target.settings_path("accessibility")):
             self.backend.list_windows()
         self.api.applications.assert_not_called()
 
@@ -174,7 +174,7 @@ class MacTargetTests(unittest.TestCase):
 
     def test_permission_revoked_before_fill_does_not_touch_clipboard(self):
         self.api.allowed = False
-        with self.assertRaisesRegex(target.TargetError, "辅助功能"):
+        with self.assertRaisesRegex(target.TargetError, target.settings_path("accessibility")):
             self.backend.fill(self.selected, "文字")
         self.assertEqual(self.api.actions, [])
 
@@ -1170,7 +1170,7 @@ class MacScanTests(unittest.TestCase):
             self.backend.list_windows()
         self.assertIn("辅助功能授权：未允许", self.backend.last_scan_report)
         self.assertNotIn("可用窗口：1", self.backend.last_scan_report)
-        self.assertIn("辅助功能", self.backend.last_scan_note)
+        self.assertEqual(target.PERMISSION_MESSAGE, self.backend.last_scan_note)
         self.assertEqual(self.backend._records, {})
 
     def test_application_list_failure_replaces_previous_successful_scan(self):

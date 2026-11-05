@@ -74,6 +74,11 @@ def validate_config(data):
         raise ValueError('自动寻找电脑应为开启或关闭。')
     usb_auto = data.get('usb_auto', True)
     if type(usb_auto) is not bool:raise ValueError('USB 自动连接应为开启或关闭。')
+    # 老版只有 Wi-Fi 配置时延续 Wi-Fi；明确开启 USB 自动连接的版本延续 USB。
+    mode = data.get('connection_mode',
+                    'wifi' if data.get('enabled') and data.get('usb_auto') is not True else 'usb')
+    if mode not in ('usb', 'wifi'):
+        raise ValueError('连接方式请选择 USB 或 Wi-Fi。')
     supplied = data.get('bindings', {})
     bindings = {k: normalize_shortcut(supplied.get(k, v)) for k, v in list(DEFAULT_BINDINGS.items())[:8]}
     bindings.update({k: normalize_shortcut(v) for k, v in supplied.items() if k in ACTIONS})
@@ -89,8 +94,8 @@ def validate_config(data):
     token = str(data.get('token') or secrets.token_hex(24))
     if len(token) != 48 or any(c not in '0123456789abcdef' for c in token):
         raise ValueError('配对配置损坏，请重新生成。')
-    return dict(host=host, port=port, enabled=bool(data.get('enabled', False)),
-                usb_auto=usb_auto,
+    return dict(host=host, port=port, enabled=mode == 'wifi',
+                usb_auto=mode == 'usb', connection_mode=mode,
                 discovery=discovery, device_host=device_host,
                 token=token, bindings=bindings,
                 preferences=validate_preferences(data.get('preferences', {})))

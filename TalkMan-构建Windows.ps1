@@ -101,7 +101,7 @@ $pyinstallerArgs = @(
     '--paths', $libs, '--paths', $deviceLibs, '--collect-all', '_sounddevice_data', '--collect-submodules', 'comtypes',
     '--collect-submodules', 'websockets', '--hidden-import', 'regex',
     '--collect-all', 'libusb_package', '--collect-submodules', 'usb.backend',
-    '--hidden-import', 'serial.tools.list_ports_windows', '--hidden-import', 'lupa.lua54',
+    '--hidden-import', 'lupa.lua54',
     '--hidden-import', '_cffi_backend', '--hidden-import', 'comtypes',
     '--hidden-import', 'comtypes.client', '--hidden-import', 'comtypes.gen.UIAutomationClient',
     # Keep the source ASCII so Windows PowerShell 5.1 reads UTF-8 scripts correctly.

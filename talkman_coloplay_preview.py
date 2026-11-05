@@ -181,14 +181,20 @@ class LocalDeviceSession:
             semantic=self.controller.semantic('next' if direction>0 else 'previous')
             if semantic:self.controller.execute(semantic,steps=steps)
 
-    def render(self):
+    def display_state(self):
         state=self.controller.snapshot()
         state['ready']=self.enabled
         if self.now < getattr(self,'update_until',0):
             state.update(update_phase='done',update_message=self.update_feedback)
         valid=bool(self.lease.id()) and self.lease.pending[2]==self.controller.action_stamp(self.lease.pending[3])
         if not valid: self.lease.cancel()
-        return self.runtime.render(state,self.now,bool(valid and self.lease.pending[3]=='select'),bool(valid))
+        state['pending']=bool(valid and self.lease.pending[3]=='select')
+        state['armed']=bool(valid)
+        return state
+
+    def render(self):
+        state=self.display_state()
+        return self.runtime.render(state,self.now,state['pending'],state['armed'])
 
 
 class ColoPlaySimulator:
