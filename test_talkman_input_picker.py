@@ -43,12 +43,11 @@ class PickerTests(unittest.TestCase):
         self.assertTrue(predicate())
 
     def begin_device(self):
-        s = self.session
-        s.feed(8,100); s.feed(72,150); s.feed(8,200)
+        # Selection is now an explicit command; target cycling no longer opens it.
         self.assertEqual(self.app.target_controller.selected, self.backend.windows[0])
-        self.app.set_text('预选中也不得填入'); self.app.fill_to_target()
+        self.app.set_text('预选中也不得填入')
         self.assertFalse(self.backend.writes)
-        s.feed(0,250)
+        self.picker.begin(self.backend.windows[1], source='device')
         self.pump(lambda: bool(self.picker.regions))
 
     def test_complete_gesture_confirms_region_then_fills_only_it(self):
