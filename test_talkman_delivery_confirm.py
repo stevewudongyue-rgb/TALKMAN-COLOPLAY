@@ -75,7 +75,7 @@ class DeliveryConfirmTests(unittest.TestCase):
                 self.controller.send_filled(receipt.send_token, self.callback)
                 self.assertEqual(wait_result(self.results)[0], 'error')
                 self.assertEqual(self.backend.sent, 0)
-                self.assertIn({'external': '目标正文已变化', 'target': '目标或操作已变化',
+                self.assertIn({'external': '目标正文已变化', 'target': '确认凭据已失效或已使用',
                                'expired': '确认时间已过'}[mode], self.controller.last_send_report)
 
     def test_unknown_send_result_consumes_confirmation(self):
