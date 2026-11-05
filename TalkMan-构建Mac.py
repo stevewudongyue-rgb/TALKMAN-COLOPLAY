@@ -224,20 +224,22 @@ def make_notarized_distribution(app: Path, archive: Path, sign_identity: str, pr
     return image
 
 
-def build(sign_identity: str | None = None, notary_profile: str | None = None, *, test_dmg: bool = False) -> None:
+def build(sign_identity: str | None = None, notary_profile: str | None = None, *, test_dmg: bool = False,
+          opus_library: Path | None = None) -> None:
     if test_dmg and notary_profile:
         raise RuntimeError("--test-dmg 用于未公证测试版；正式公证构建请去掉此参数。")
     require_native_mac()
     static_check()
-    opus = Path('/opt/homebrew/opt/opus/lib/libopus.0.dylib')
+    opus = opus_library or Path('/opt/homebrew/opt/opus/lib/libopus.0.dylib')
     if not opus.is_file():
-        raise RuntimeError('请先运行 brew install opus；设备麦克风需要在安装包内附带 Opus 解码库。')
+        raise RuntimeError('请先运行 brew install opus，或用 --opus-library 指定已验证的 arm64 Opus 库。')
     arch = subprocess.run(['/usr/bin/lipo', '-archs', str(opus)], text=True, capture_output=True, check=True).stdout.split()
     if 'arm64' not in arch:
         raise RuntimeError('Opus 解码库不是 Apple Silicon arm64 版本。')
     bundled_opus = ROOT / 'TalkMan-assets/native/mac-arm64/libopus.0.dylib'
     bundled_opus.parent.mkdir(parents=True, exist_ok=True)
-    shutil.copy2(opus, bundled_opus)
+    if opus.resolve() != bundled_opus.resolve():
+        shutil.copy2(opus, bundled_opus)
     signing_preflight(sign_identity, notary_profile)
     BUILD.mkdir(exist_ok=True)
     DIST.mkdir(exist_ok=True)
@@ -291,13 +293,15 @@ def main() -> int:
     parser.add_argument("--sign-identity", help="本机钥匙串中完整的 Developer ID Application 证书名称")
     parser.add_argument("--notary-profile", help="由 notarytool store-credentials 存在本机钥匙串的条目名称")
     parser.add_argument("--test-dmg", action="store_true", help="另生成未公证测试 DMG，无需开发者证书")
+    parser.add_argument("--opus-library", type=Path, help="已验证的 arm64 libopus.0.dylib；默认使用 Homebrew 安装位置")
     args = parser.parse_args()
     try:
         validate_signing(args.sign_identity, args.notary_profile)
         if args.check:
             static_check()
         else:
-            build(args.sign_identity, args.notary_profile, test_dmg=args.test_dmg)
+            build(args.sign_identity, args.notary_profile, test_dmg=args.test_dmg,
+                  opus_library=args.opus_library)
     except (RuntimeError, OSError, SyntaxError, subprocess.CalledProcessError) as exc:
         print(f"构建未完成：{exc}", file=sys.stderr)
         return 1
