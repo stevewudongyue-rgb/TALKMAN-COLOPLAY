@@ -74,9 +74,9 @@ def main():
             brand_assets = check_brand_assets(installed, info)
             assert (Path(mount)/'Applications').is_symlink()
             assert list(installed.rglob('TalkMan-free-service-ca.pem'))
-            opus = list(installed.rglob('TalkMan-assets/native/mac-arm64/libopus.0.dylib'))
-            assert len(opus) == 1, '设备麦克风解码库未随应用打包'
-            decoded = ctypes.CDLL(str(opus[0]))
+            opus = {path.resolve() for path in installed.rglob('TalkMan-assets/native/mac-arm64/libopus.0.dylib')}
+            assert len(opus) == 1, '设备麦克风解码库未随应用打包或存在不同副本'
+            decoded = ctypes.CDLL(str(next(iter(opus))))
             decoded.opus_get_version_string.restype = ctypes.c_char_p
             assert decoded.opus_get_version_string().startswith(b'libopus')
             assert not list(installed.rglob('*.dpapi'))
