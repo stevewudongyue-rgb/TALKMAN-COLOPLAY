@@ -4,8 +4,9 @@
 
 面向初代 COLOPLAY（240×240 圆屏、四键和旋钮）的独立桌面客户端。电脑负责文字编辑，设备负责操作与提醒。这里是 COLOPLAY 设备版，与 TalkMan Desktop 公开完整功能版分别维护；不使用兑换码解锁桌面功能。
 
-## 当前版本：桌面 0.1.28.74／卡带 68
+## 当前版本：桌面 0.1.28.75／卡带 68
 
+- 修复首次按住右下旋转时，候选扫描改变内部状态而丢弃预览或松手确认。松开右下才最终选定 Agent；卡带 68 无需重装。
 - Windows USB识别不再依赖设备语言描述符，避免 no langid 错误。
 - 修复USB左下结束录音的松开事件被实时转写吞掉，以及右下＋旋转预选被自身焦点变化取消。
 - 修复刚编辑或移动光标后，旧小屏状态挡住新一轮Agent预选。选择过程仍校验目标、会话、断包和事件有效期。
@@ -16,18 +17,18 @@
 
 | 文件 | 适用设备 |
 |---|---|
-| [Windows 安装器](https://github.com/stevewudongyue-rgb/TALKMAN-COLOPLAY/releases/download/coloplay-v0.1.28.74/TalkMan-COLOPLAY-0.1.28.74-Windows-x64-Setup.exe) | Windows 10／11 x64 |
-| [Mac DMG](https://github.com/stevewudongyue-rgb/TALKMAN-COLOPLAY/releases/download/coloplay-v0.1.28.74/TalkMan-COLOPLAY-0.1.28.74-Mac-AppleSilicon.dmg) | Apple芯片 M1及以后，macOS 14及以上 |
-| [校验值](https://github.com/stevewudongyue-rgb/TALKMAN-COLOPLAY/releases/download/coloplay-v0.1.28.74/TalkMan-SHA256SUMS.txt) | SHA-256 |
+| [Windows 安装器](https://github.com/stevewudongyue-rgb/TALKMAN-COLOPLAY/releases/download/coloplay-v0.1.28.75/TalkMan-COLOPLAY-0.1.28.75-Windows-x64-Setup.exe) | Windows 10／11 x64 |
+| [Mac DMG](https://github.com/stevewudongyue-rgb/TALKMAN-COLOPLAY/releases/download/coloplay-v0.1.28.75/TalkMan-COLOPLAY-0.1.28.75-Mac-AppleSilicon.dmg) | Apple芯片 M1及以后，macOS 14及以上 |
+| [校验值](https://github.com/stevewudongyue-rgb/TALKMAN-COLOPLAY/releases/download/coloplay-v0.1.28.75/TalkMan-SHA256SUMS.txt) | SHA-256 |
 
-[发布说明与源码](https://github.com/stevewudongyue-rgb/TALKMAN-COLOPLAY/releases/tag/coloplay-v0.1.28.74)。仓库目前需要访问权限；安装器内附通用68更新卡带，通用包不包含个人配对口令、模型Key或草稿。
+[发布说明与源码](https://github.com/stevewudongyue-rgb/TALKMAN-COLOPLAY/releases/tag/coloplay-v0.1.28.75)。仓库目前需要访问权限；安装器内附通用68更新卡带，通用包不包含个人配对口令、模型Key或草稿。
 
-### 已有设备：先升级电脑，再升级卡带
+### 已有设备：升级电脑；已是卡带 68 可直接继续使用
 
-1. 在当前桌面程序的 **设置底部 → 一键升级** 安装74，重启后确认构建号74。公司Mac原Key、草稿和配对继续使用。
+1. 在当前桌面程序的 **设置底部 → 一键升级** 安装75，重启后确认构建号75。公司Mac原Key、草稿和配对继续使用。
 2. 在 **设置 → COLOPLAY → 连接方式** 临时选择 **Wi-Fi**。确认电脑与设备在同一局域网，刷新电脑IP；必要时填写当前设备IP。关闭设置，等小屏与电脑显示已连接。
 3. 同时按住 **右上＋右下＋左下5秒**，等待卡带检查、下载、校验并切换。该更新由已配对电脑提供，继承原配对，无需重新编译私人ROM。
-4. 桌面设置中确认 **当前卡带68**，再切回USB。卡带68的USB需要桌面73或以上；桌面74兼容旧66/67，便于先升级电脑。
+4. 桌面设置中确认 **当前卡带68**，再切回USB。卡带68的USB需要桌面73或以上；桌面75兼容旧66/67，便于先升级电脑。
 
 **三键更新目前仍依赖Wi-Fi，不是USB更新。** 已配对的61及以上USB＋Wi-Fi卡带可走上述流程；纯USB、早于61或尚未配对的卡带须先通过官方程序安装本机配对ROM。Wi-Fi未连通时不会更新，不要用家里私人卡带覆盖公司配对。
 
@@ -101,13 +102,13 @@ Mac 首次连接设备允许“本地网络”，录音允许麦克风，填入 
 
 旧卡带没有发现能力，首次必须更新。通用安装包不含个人配对口令；“首次配对 · 导出源码”导出的是源码，首次配对仍需用开发工具编译为 ROM。换到另一台未配对电脑也需重新配对。ROM 使用固定短文件名 `TalkMan_COLOPLAY.rom`，勿增加点分版本号。
 
-沿用 .46 的 Wi-Fi 心跳恢复修复及断线日志。USB 状态同步需设备固件提供 CXUS v2 双向数据接口；本次配套桌面74与卡带68，仍兼容66/67卡带。免费模型服务与设备连接相互独立。
+沿用 .46 的 Wi-Fi 心跳恢复修复及断线日志。USB 状态同步需设备固件提供 CXUS v2 双向数据接口；本次配套桌面75与卡带68，仍兼容66/67卡带。免费模型服务与设备连接相互独立。
 
 应用内升级只替换程序，不迁移或删除用户数据。Windows 设置与草稿在 `%LOCALAPPDATA%\TalkMan-COLOPLAY`，Mac 在 `~/Library/Application Support/TalkMan-COLOPLAY`，Mac Key 存系统钥匙串。测试版未使用 Developer ID 签名，新版首次访问钥匙串、麦克风或辅助功能时，macOS 仍可能要求重新授权；数据并未因此清空。
 
 ## 验证范围
 
-74 版 Windows 定向回归共181项：178项通过、3项仅Mac适用而跳过；Windows成品隔离自检55项通过。公司M2原生回归672项全部通过，无跳过；Mac成品启动、arm64、签名完整性、DMG挂载、品牌资源、内置68卡带与Opus库检查通过。两处“编辑或聚焦后无法开始Agent预选”用例在修复前失败、修复后通过；测试也覆盖连续旋转、松手确认、录音中切换、过期事件与目标改变。
+75 版 Windows 相关回归176项通过，最终目标与USB手势回归69项通过，成品隔离自检55项通过。公司M2原生相关回归352项全部通过；Mac成品启动10秒、arm64、签名完整性、DMG挂载、品牌资源、内置68卡带与Opus库检查通过。测试覆盖首次空候选扫描、松开确认、连续旋转、录音中切换及外部编辑／换目标取消。实体按键效果仍待现场确认，不能把离线回归当作真机验收。
 
 卡带68四种未连接场景各做1810秒加速模拟，未主动发送USB唤醒包；这不是设备实际待机半小时，也无法证明固件原生内存没有问题。没有执行真实麦克风、模型调用、Agent填入发送、实体刷机或Apple公证。旧版覆盖安装保留数据的隔离验证见 .47 记录。
 
