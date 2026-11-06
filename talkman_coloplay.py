@@ -524,7 +524,8 @@ class ColoPlayController:
     def preview_target(self, direction):
         now=time.monotonic()
         draft_target = self.app.input_picker.target if self.app.input_picker.active else None
-        self.app.input_picker.cancel(quiet=True)
+        if self.app.input_picker.active:
+            self.app.input_picker.cancel(quiet=True)
         self.app.sync_mode_var.set(False)
         self.app.live_sync.configure(False)
         self.app.disarm_delivery()
@@ -547,7 +548,8 @@ class ColoPlayController:
             self.target_scan_steps=direction
             self.target_scan_serial+=1
             serial=self.target_scan_serial
-            controller.refresh(lambda state,value:self.events.put(('target_scan',state,(serial,value))))
+            controller.refresh(lambda state,value:self.events.put(('target_scan',state,(serial,value))),
+                               preserve_selection=True)
             return
         current=self.target_preview or draft_target or controller.selected
         windows=self.target_candidates

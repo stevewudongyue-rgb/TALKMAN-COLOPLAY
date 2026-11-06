@@ -1,13 +1,15 @@
 """Exercise delayed USB screen acknowledgements with real gestures and an isolated app."""
 import queue
+import sys
 import time
 import unittest
 from unittest.mock import Mock, patch
 
 import test_talkman_coloplay as fixture
 from talkman_coloplay_usb import UsbBridge
-from talkman_target import TargetWindow
+from talkman_target import TargetController, TargetWindow
 from test_talkman_app import FakeVoice
+from test_talkman_target import FakeBackend
 
 
 class UsbGestureTests(unittest.TestCase):
@@ -90,6 +92,41 @@ class UsbGestureTests(unittest.TestCase):
             self.packet(0, displayed)
         target.cycle.assert_called_once()
         self.assertEqual(target.cycle.call_args.kwargs['expected_target'], target.windows[2])
+
+    def test_first_target_scan_does_not_invalidate_held_usb_gesture(self):
+        windows = [TargetWindow(i, 2, 'Codex', str(i), 'codex.exe') for i in range(1, 4)]
+        backend = FakeBackend()
+        backend.windows = windows
+        backend.activate_window = Mock()
+        self.app.target_controller.close()
+        target = TargetController(self.app.data_dir, backend=backend)
+        self.app.target_controller = target
+        target.selection.set(windows[0])
+        displayed = self.device.stamp()
+        self.packet(8, displayed)
+        self.packet(72, displayed)
+        self.assertTrue(self.device.target_scanning)
+        deadline = time.time() + 2
+        while self.device.events.empty() and time.time() < deadline:
+            time.sleep(.01)
+        self.assertFalse(self.device.events.empty(), '等待候选扫描超时')
+        self.assertIsNone(target.selected)
+        self.packet(8, displayed)
+        self.device.tick()
+        self.assertEqual(self.device.target_preview, windows[0])
+        self.assertEqual(self.bridge.target_after, self.device.stamp())
+        self.packet(0, displayed)
+        self.assertTrue(self.device.cycling)
+        deadline = time.time() + 2
+        while self.device.events.empty() and time.time() < deadline:
+            time.sleep(.01)
+        self.assertFalse(self.device.events.empty(), '等待目标确认超时')
+        self.device.tick()
+        self.assertEqual(target.selected, windows[0])
+        if sys.platform == 'darwin':
+            backend.activate_window.assert_not_called()
+        else:
+            backend.activate_window.assert_called_once_with(windows[0])
 
     def test_external_edit_still_cancels_target_release(self):
         target = self.targets()

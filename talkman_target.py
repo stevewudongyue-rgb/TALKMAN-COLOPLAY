@@ -423,8 +423,9 @@ class TargetController(InputLocationControllerMixin):
                 # UI 回调异常不能终止窗口 worker。
                 pass
 
-    def refresh(self, callback: Callback | None = None) -> None:
-        self._queue.put(("refresh", callback, None))
+    def refresh(self, callback: Callback | None = None, *, preserve_selection=False) -> None:
+        # 旋钮候选扫描不恢复持久化目标，避免扫描结果使当前 USB 手势失效。
+        self._queue.put(("refresh", callback, preserve_selection))
 
     def cycle(self, direction, callback=None, expected_target=None, cancelled=None, *, commit_preview=False):
         self._queue.put(('cycle', callback, (1 if direction > 0 else -1, expected_target, cancelled, commit_preview)))
@@ -784,15 +785,15 @@ class TargetController(InputLocationControllerMixin):
             self._refresh_note = note
             self._refresh_report = report
 
-    def _refresh(self, callback: Callback | None) -> None:
+    def _refresh(self, callback: Callback | None, preserve_selection=False) -> None:
         try:
             windows = _as_windows(self.backend.list_windows())
-            selected = self._resolve(windows)
+            selected = self._resolve(windows) if not preserve_selection else None
             with self._lock:
                 self._windows = windows
-                if not self._chosen_input and not self._input_selecting:
+                if not preserve_selection and not self._chosen_input and not self._input_selecting:
                     self._selected = selected
-                if selected is None:
+                if not preserve_selection and selected is None:
                     self._focus_token = None
             self._record_refresh(count=len(windows))
             self._emit(callback, "ok", windows)
@@ -955,7 +956,7 @@ class TargetController(InputLocationControllerMixin):
                     self._input_command(command, callback, value)
                     continue
                 if command == "refresh":
-                    self._refresh(callback)
+                    self._refresh(callback, preserve_selection=value)
                 elif command == 'cycle':
                     self._cycle(callback, value)
                 elif command == "fill":

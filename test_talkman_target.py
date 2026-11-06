@@ -141,6 +141,23 @@ class TargetTests(unittest.TestCase):
             self.assertEqual(windows, backend.windows)
             controller.close()
 
+    def test_candidate_refresh_keeps_saved_target_unresolved_until_commit(self):
+        backend = FakeBackend()
+        with tempfile.TemporaryDirectory() as directory:
+            controller = TargetController(Path(directory), backend=backend)
+            self.addCleanup(controller.close)
+            controller.selection.set(backend.windows[0])
+            results = []
+            controller.refresh(lambda state, value: results.append((state, value)),
+                               preserve_selection=True)
+            state, windows = wait_result(results)
+            self.assertEqual(state, 'ok')
+            self.assertEqual(windows, backend.windows)
+            self.assertIsNone(controller.selected)
+            controller.refresh(lambda state, value: results.append((state, value)))
+            self.assertEqual(wait_result(results)[0], 'ok')
+            self.assertEqual(controller.selected, backend.windows[0])
+
     def test_refresh_failure_keeps_specific_diagnostics(self):
         backend = FakeBackend()
         with tempfile.TemporaryDirectory() as directory:
