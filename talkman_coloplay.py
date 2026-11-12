@@ -362,7 +362,7 @@ class ColoPlayController:
             return action if self.target_due or self.target_scanning else None
         if self.cycling: return None
         if action == 'cancel_delete':
-            return 'delete' if phase == 'idle' else 'cancel'
+            return ('clear' if a.current_text() else 'delete') if phase == 'idle' else 'cancel'
         if action == 'clear':
             return 'clear' if phase == 'idle' and a.current_text() else None
         if action == 'toggle': return 'toggle'
@@ -658,7 +658,7 @@ class ColoPlayController:
                     target_page_names=page_names, target_page_start=page_start+1,
                     target_page=page_start//TARGET_PAGE_SIZE+1 if windows else 0,
                     target_pages=(len(windows)+TARGET_PAGE_SIZE-1)//TARGET_PAGE_SIZE,
-                    labels=dict(ai='发送' if self.device_send_pending() else '确认' if phase == 'review' else 'AI 改写', cancel_delete='取消发送' if self.device_send_pending() else '退格' if phase == 'idle' else '放弃' if phase == 'review' else '取消',
+                    labels=dict(ai='发送' if self.device_send_pending() else '确认' if phase == 'review' else 'AI 改写', cancel_delete='取消发送' if self.device_send_pending() else '清空' if phase == 'idle' else '放弃' if phase == 'review' else '取消',
                                 record='结束' if phase in ('opening','recording') else '录入' if phase == 'idle' else '等待',
                                 rewrite='指令', modifier='组合', clear='清空'),
                     can_copy=False,
@@ -1158,9 +1158,9 @@ def _smoke_check_ui(directory, report_path, report):
         before=app.current_text()
         sim.canvas.event_generate('<ButtonPress-1>',x=440,y=145)
         sim.canvas.event_generate('<ButtonRelease-1>',x=440,y=145)
-        pump_until(lambda:app.current_text()==before[:-1])
-        checked(app.current_text()==before[:-1],'模拟器右上删除光标前一个字')
-        app.undo();checked(app.current_text()==before,'模拟器删除可以撤销')
+        pump_until(lambda:app.current_text()=='')
+        checked(app.current_text()=='','模拟器右上清空整个编辑区')
+        app.undo();checked(app.current_text()==before,'模拟器清空可以撤销')
         sim.canvas.event_generate('<ButtonPress-1>',x=440,y=145,state=1)
         sim.canvas.event_generate('<ButtonRelease-1>',x=440,y=145,state=1)
         pump_until(lambda:app.current_text()=='')

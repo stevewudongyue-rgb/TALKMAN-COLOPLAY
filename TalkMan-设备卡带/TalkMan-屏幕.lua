@@ -209,7 +209,7 @@ function TMDraw(m)
  for i=0,5 do
   rectfill(18,99+i*7,19,101+i*7,C.edge);rectfill(221,99+i*7,222,101+i*7,C.edge)
  end
- local cancel=live and (phase=='idle' and '退格' or phase=='review' and '放弃' or '取消') or '取消'
+ local cancel=live and (phase=='idle' and '清空' or phase=='review' and '放弃' or '取消') or '取消'
  if m.modifier and live then cancel='清空' end
  if confirming then cancel='取消' end
  if not m.inactive then

@@ -354,7 +354,7 @@ class ColoPlaySimulator:
             active=bool(self.mask & (1<<index))
             c.create_rectangle(x,y,x+100,y+70,fill='#1c3827' if active else '#0c1710',outline=green if active else '#39513f',width=2 if active else 1)
             text(x+50,y+27,label,12,green if active else white)
-            text(x+50,y+51,['右下组合显隐' if self.mask&8 else '长按 5 秒退出','清空全文' if self.mask&8 else '取消 / 退格','点按开始／结束','按住＋旋转选目标'][index],8,muted)
+            text(x+50,y+51,['右下组合显隐' if self.mask&8 else '长按 5 秒退出','清空全文' if self.mask&8 else '取消 / 清空','点按开始／结束','按住＋旋转选目标'][index],8,muted)
         phase=self.controller.phase()[0]
         text(265,493,'旋转滚动改写预览' if phase=='review' else '旋转选字 · 点按结束' if self.controller.editor_focus.selecting else '旋转移动光标 · 点按开始选字',11)
         text(265,520,'长按松开：填入 · 5 秒内短按左上发送',10,muted)

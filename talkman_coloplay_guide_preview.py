@@ -25,8 +25,8 @@ SCENES = (
         (Scene('点左下，开始说话。', (2,), text='', status='正在录音'),
          Scene('说的话出现在预输入框。', text='明天下午', status='正在录音'),
          Scene('再点左下，结束这次录音。', (2,), text='明天下午三点开会。', cursor=9, status='录入完成')),
-        (Scene('空闲时，右上删除光标前的一个字。', (1,), text='苹果', cursor=2),
-         Scene('有选区时，右上删除整段选区。', (1,), text='请拿苹果', selected=(2, 4)),
+        (Scene('空闲时，右上清空编辑框全文。', (1,), text='', status='正文已清空'),
+         Scene('点桌面“上一步”，可以恢复全文。', text='请拿苹果', status='已恢复正文'),
          Scene('录音中右上取消；右下用于组合操作。', (1,), text='请拿', status='已取消录音')),
     ),
     (
@@ -60,7 +60,7 @@ SCENES = (
          Scene('出现对照，先检查改写内容。', view='compare', status='改写对照'),
          Scene('此时转旋钮，上下阅读对照内容。', (4,), view='compare', status='向下阅读', turn=True)),
         (Scene('对照中：左上确认，右上放弃。', (0, 1), view='compare', status='检查后选择'),
-         Scene('回到空闲后，右下＋右上清空全文。', (1, 3), text='', status='正文已清空'),
+         Scene('回到空闲后，右上清空全文。', (1,), text='', status='正文已清空'),
          Scene('点桌面“上一步”，可以恢复全文。', status='已恢复正文')),
     ),
     (

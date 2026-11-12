@@ -135,9 +135,9 @@ class InteractionTests(unittest.TestCase):
             target.assert_not_called()
         self.assertEqual(a.text.index('insert'),cursor);self.assertEqual(a.current_text(),base)
 
-    def test_backspace_after_voice_and_clear_with_selection_are_undoable(self):
+    def test_upper_right_after_voice_and_clear_combo_are_undoable(self):
         a=self.app;a.set_text('甲👨‍👩‍👧‍👦');a.text.mark_set('insert','end-1c')
-        self.act('cancel_delete');self.assertEqual(a.current_text(),'甲')
+        self.act('cancel_delete');self.assertEqual(a.current_text(),'')
         a.undo();self.assertEqual(a.current_text(),'甲👨‍👩‍👧‍👦')
         session=LocalDeviceSession(self.device)
         session.feed(8,100);session.feed(10,200);session.feed(0,380)

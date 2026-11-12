@@ -1,5 +1,5 @@
 """卡带版本与升级说明；版本只采用当前已配对设备的报告。"""
-CARTRIDGE_BUILD = 70
+CARTRIDGE_BUILD = 71
 FILL_HOLD_MS = 500
 
 

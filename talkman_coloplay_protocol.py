@@ -11,7 +11,7 @@ from pathlib import Path
 from talkman_shortcuts import normalize_shortcut
 
 ACTIONS = {
-    'ai': 'AI 改写／确认', 'cancel_delete': '取消／退格',
+    'ai': 'AI 改写／确认', 'cancel_delete': '取消／清空',
     'record': '录音／覆盖', 'rewrite': '指令修改',
     'previous': '光标向前／预览向上', 'next': '光标向后／预览向下',
     'toggle': '显示／收起', 'fill': '填入目标',
@@ -23,7 +23,7 @@ ACTIONS.update(copy='旧版保留（不执行）', scroll_up='向上滚动', scr
                scroll_left='向左滚动', scroll_right='向右滚动')
 DEFAULT_BINDINGS.update({action: f'Control+Alt+Shift+F{i}' for action, i in
                         zip(('copy', 'scroll_up', 'scroll_down', 'scroll_left', 'scroll_right'), (1, 2, 3, 5, 6))})
-ACTIONS['clear'] = '清空编辑区（右下＋右上）'
+ACTIONS['clear'] = '清空编辑区（兼容右下＋右上）'
 DEFAULT_BINDINGS['clear'] = 'Control+Alt+Shift+F7'
 ACTIONS.update(knob='选区开始／结束', target_previous='上一目标（右下＋旋转）', target_next='下一目标（右下＋旋转）')
 DEFAULT_BINDINGS.update(knob='Control+Alt+Shift+F8', target_previous='Control+Alt+Shift+F9', target_next='Control+Alt+Shift+F10')

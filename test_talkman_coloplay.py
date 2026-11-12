@@ -381,24 +381,35 @@ class DesktopTests(unittest.TestCase):
             self.assertEqual(d.peer, peer)
             self.assertEqual(d.snapshot()['phase'], 'idle')
             self.action('cancel_delete')
-            self.assertEqual(a.current_text(), '设置期间保留正')
+            self.assertEqual(a.current_text(), '')
+            a.undo();self.assertEqual(a.current_text(), '设置期间保留正文')
 
-    def test_delete_selection_and_unicode_cluster_is_one_undo(self):
-        for value,result in [('中文','文'),('e\u0301文','文'),('👨‍👩‍👧‍👦文','文'),('🇨🇳文','文'),('👍🏽文','文')]:
+    def test_upper_right_clears_full_editor_with_cursor_or_selection_in_one_undo(self):
+        for value in ('中文','e\u0301文','👨‍👩‍👧‍👦文','🇨🇳文','👍🏽文'):
             with self.subTest(value=value):
-                self.app.set_text(value);self.app.text.mark_set('insert',f'1.0 + {len(value)-len(result)} chars')
+                self.app.set_text(value);self.app.text.mark_set('insert','1.1')
                 self.action('cancel_delete')
-                self.assertEqual(self.app.current_text(),result)
+                self.assertEqual(self.app.current_text(),'')
                 self.app.undo(); self.assertEqual(self.app.current_text(),value)
-        self.app.set_text('不要误删全文')
+        self.app.set_text('选区之外也清空')
         self.app.text.tag_add('sel','1.2','1.4')
+        self.assertEqual(self.device.snapshot()['labels']['cancel_delete'],'清空')
         self.action('cancel_delete')
-        self.assertEqual(self.app.current_text(),'不要全文')
-        self.app.set_text('😀甲乙')
-        self.app.text.mark_set('insert','1.3')
+        self.assertEqual(self.app.current_text(),'')
+        self.assertIsNone(self.app.get_selection())
+        self.app.undo();self.assertEqual(self.app.current_text(),'选区之外也清空')
+        self.app.redo();self.assertEqual(self.app.current_text(),'')
         self.action('cancel_delete')
-        self.assertEqual(self.app.current_text(),'😀乙')
-        self.assertEqual(self.app.text.get('1.0','insert'),'😀')
+        self.assertEqual(self.app.current_text(),'')
+
+    def test_upper_right_armed_before_text_changes_does_not_clear_new_text(self):
+        self.app.set_text('旧内容')
+        self.device.arm(dict(action='cancel_delete',id='before-change'))
+        self.app.set_text('新内容')
+        self.device.dispatch('coloplay_cancel_delete')
+        self.assertEqual(self.app.current_text(),'新内容')
+        self.action('cancel_delete')
+        self.assertEqual(self.app.current_text(),'')
 
     def test_busy_cancel_never_becomes_delete_after_result_arrives(self):
         a=self.app;a.set_text('保留的文字');a.start_voice('insert',from_device=True)

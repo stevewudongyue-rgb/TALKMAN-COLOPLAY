@@ -66,14 +66,15 @@ class SimulatorTests(DesktopTests):
             self.step(16,2100);self.app.text.mark_set('insert','1.2');self.step(0,3000)
             fill.assert_not_called()
 
-    def test_sim_ai_review_confirmation_undo_and_one_delete(self):
+    def test_sim_ai_review_confirmation_undo_and_upper_right_clear(self):
         a=self.make_review()
         self.step(1,100);self.step(0,200)
         self.assertEqual(a.current_text(),'请把梨拿过来。')
         a.undo();self.assertEqual(a.current_text(),'请把苹果拿过来。')
         a.text.tag_remove('sel','1.0','end');a.text.mark_set('insert','1.1')
         self.step(2,300);self.step(2,900);self.step(0,1000)
-        self.assertEqual(a.current_text(),'把苹果拿过来。')
+        self.assertEqual(a.current_text(),'')
+        a.undo();self.assertEqual(a.current_text(),'请把苹果拿过来。')
 
     def test_clear_combo_cancels_fill_and_preserves_undo(self):
         self.target();a=self.app;before=a.current_text()
@@ -89,6 +90,8 @@ class SimulatorTests(DesktopTests):
 
     def test_modifier_screen_labels_clear_and_busy_state(self):
         runtime=self.session.runtime
+        runtime.render(dict(ready=True,phase='idle'),50)
+        self.assertIn('清空',[row['text'] for row in runtime.text_layout])
         self.step(8,100)
         runtime.render(dict(ready=True,phase='idle'),100)
         self.assertIn('清空',[row['text'] for row in runtime.text_layout])
@@ -351,17 +354,18 @@ class SimulatorTests(DesktopTests):
             packet(2,delay=1);packet(0)
             self.assertEqual(a.current_text(),'保留正文')
             packet(2);packet(0)
-            self.assertEqual(a.current_text(),'保正文')
+            self.assertEqual(a.current_text(),'')
+            a.undo();self.assertEqual(a.current_text(),'保留正文')
             bridge.last_input=time.monotonic()-2;bridge.poll()
             self.assertFalse(bridge.session.enabled)
             self.assertFalse(bridge.streaming)
             self.assertIsNone(wire.publish.call_args.args[0])
             packet(2);packet(0) # 断线恢复时先松开，不补发旧按键。
-            self.assertEqual(a.current_text(),'保正文')
+            self.assertEqual(a.current_text(),'保留正文')
             packet(2);packet(0)
-            self.assertEqual(a.current_text(),'正文')
+            self.assertEqual(a.current_text(),'')
             wire.events.put(('exit',None,time.monotonic()));bridge.poll()
-            packet(2);self.assertEqual(a.current_text(),'正文')
+            packet(2);self.assertEqual(a.current_text(),'')
             self.assertFalse(bridge.streaming)
         finally:bridge.close()
 
@@ -539,7 +543,7 @@ class UsbProtocolTests(unittest.TestCase):
         function getcolor(r,g,b) return 0 end
         incoming={}
         function airdata_get(channel)
-         if channel==0 then local v=table.remove(incoming,1);if v then return v,20 end end
+         if channel==0 then local v=table.remove(incoming,1);if v then return v,v=='hello' and 21 or 20 end end
         end
         function toidle() exited=true end
         function svcreq() error('CDC must not be used') end
@@ -551,11 +555,13 @@ class UsbProtocolTests(unittest.TestCase):
         end
         package.preload.cjson_safe=function() return {
          encode=function(t) frames[#frames+1]=t;return '{}' end,
-         decode=function(d) return {v=1,token=d=='bad' and 'wrong' or 'test',config='binding',
+         decode=function(d)
+          if d=='hello' then return {protocol='TM_USB_HELLO_1',v=1,token=string.rep('a',48),config=string.rep('b',16)} end
+          return {v=1,token=d=='bad' and 'wrong' or string.rep('a',48),config=string.rep('b',16),
           frame=7,state={ready=true,phase='idle',target='豆包'}} end
         } end
         ''')
-        lua.execute(src);lua.execute("TM_CONFIG.token='test';TM_CONFIG.config='binding';incoming[1]='state';_init();_update();timer=100;mask=4;_update()")
+        lua.execute(src);lua.execute("incoming[1]='hello';incoming[2]='state';_init();_update();timer=100;mask=4;_update()")
         lua.execute('TMDraw=function(m) rendered=m end;_draw()')
         self.assertEqual(lua.globals().rendered.target,'豆包')
         self.assertTrue(lua.globals().rendered.ready)
@@ -570,7 +576,7 @@ class UsbProtocolTests(unittest.TestCase):
         lua.execute('timer=200;_update()')
         self.assertEqual(frames[len(frames)-1].seq,frames[len(frames)].seq)
         self.assertEqual(frames[len(frames)].mask,8)
-        lua.execute("timer=200;mask=1;_update();timer=5300;incoming[1]='state';_update()")
+        lua.execute("timer=200;mask=1;_update();for t=1200,5200,1000 do timer=t;incoming[1]='state';_update() end;timer=5300;_update()")
         self.assertTrue(lua.globals().exited)
         self.assertTrue(frames[len(frames)]['exit'])
 
@@ -589,15 +595,18 @@ class UsbProtocolTests(unittest.TestCase):
         function btnpcfg() end
         function airdata_ready() return true end
         function airdata_send() return true end
-        function airdata_get(ch) if ch==0 then local v=table.remove(incoming,1);if v then return v,20 end end end
+        function airdata_get(ch) if ch==0 then local v=table.remove(incoming,1);if v then return v,v=='hello' and 21 or 20 end end end
         function getcolor() return 0 end
         package.preload.cjson_safe=function() return {encode=function() return '{}' end,
-         decode=function(d) return {v=1,token=d,config='binding',frame=7,state={ready=true}} end} end
+         decode=function(d)
+          if d=='hello' then return {protocol='TM_USB_HELLO_1',v=1,token=string.rep('a',48),config=string.rep('b',16)} end
+          return {v=1,token=d=='bad' and 'wrong' or string.rep('a',48),config=string.rep('b',16),frame=7,state={ready=true}}
+         end} end
         ''')
         lua.execute(src)
-        lua.execute("TMDraw=function(m) rendered=m end;TM_CONFIG.token='test';TM_CONFIG.config='binding';_init();_update();_draw()")
+        lua.execute("TMDraw=function(m) rendered=m end;_init();_update();_draw()")
         self.assertFalse(lua.globals().rendered.ready)
-        lua.execute("incoming[1]='test';timer=100;_update();_draw()")
+        lua.execute("incoming[1]='hello';incoming[2]='test';timer=100;_update();_draw()")
         self.assertTrue(lua.globals().rendered.ready)
         lua.execute('timer=1601;_update();_draw()')
         self.assertFalse(lua.globals().rendered.ready)
