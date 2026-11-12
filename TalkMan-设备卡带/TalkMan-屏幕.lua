@@ -176,6 +176,13 @@ function TMDraw(m)
   end
   return
  end
+ if phase=='blocked' and live then
+  icon('link',120,83,C.muted)
+  text('桌面设置中',120,119,190,C.text,20,true)
+  text('关闭后继续操作',120,151,190,C.muted,14)
+  text('三键长按查看升级提示',120,181,202,C.off,12)
+  return
+ end
  if m.input_selecting and live and not m.inactive then
   text('选择输入位置',120,55,168,C.muted)
   text(m.input_target or '',120,72,174,C.text)

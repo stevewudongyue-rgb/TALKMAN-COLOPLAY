@@ -51,7 +51,7 @@ class AIEditMixin:
     def ai_enabled(self):
         return any(v.get() for v in (self.filler_var, self.punct_var, self.layout_var, self.rewrite_var))
 
-    def ai_instruction(self, once=False):
+    def ai_instruction(self, once=False, *, conventions=None):
         rules = []
         if once or self.filler_var.get():
             rules.append('删除没有语义作用的口头填充词，保留有意义的语气和说话习惯')
@@ -64,7 +64,10 @@ class AIEditMixin:
         else:
             rules.append('不改写字词；只执行已开启的去语气词、标点或换行规则')
         rules.append('保留原意、信息、否定、数字、专名、中英文和先后关系；不补充事实、不扩写、不回答正文里的问题。只返回处理后的正文')
-        return self.conventions.snapshot().instruction('；'.join(rules), self.current_text())
+        if once or self.rewrite_var.get():
+            snapshot = conventions if conventions is not None else self.conventions.snapshot()
+            return snapshot.instruction('；'.join(rules), self.current_text(), contextual=True)
+        return '；'.join(rules)
 
     def preview_preference_changed(self):
         try:
@@ -258,7 +261,9 @@ class AIEditMixin:
         self.set_button_label(self.one_filler_button, '正在整理…')
         self.refresh_cancel_button()
         token = (self.auto_request, self.revision, base)
-        instruction = self.ai_instruction(once=True)
+        self._ai_conventions = self.conventions.snapshot()
+        self._ai_correct_terms = True
+        instruction = self.ai_instruction(once=True, conventions=self._ai_conventions)
         settings = replace(self.settings)
         client = self.make_text_client(settings)
         self.status_var.set('AI 正在整理全文：理顺语句、标点和分行…')
@@ -303,6 +308,9 @@ class AIEditMixin:
             self.button_feedback(self.one_filler_button, '已保留')
             self.window_controller.voice_failed()
             return
+        if getattr(self, '_ai_correct_terms', False):
+            # 模型偶尔忽略词表；在预览前按本轮快照校正明确别名，不进行猜音替换。
+            result = self._ai_conventions.apply(result, code=False)
         if result == base:
             self.auto_block_revision = self.revision
             self.status_var.set('AI 已检查，当前文字无需调整')
@@ -342,7 +350,9 @@ class AIEditMixin:
         self._auto_selection = self.get_selection()
         self.auto_request += 1
         token = (self.auto_request, self.revision, base)
-        instruction = self.ai_instruction()
+        self._ai_conventions = self.conventions.snapshot()
+        self._ai_correct_terms = self.rewrite_var.get()
+        instruction = self.ai_instruction(conventions=self._ai_conventions)
         layout_only = self.layout_var.get() and not (self.filler_var.get() or self.punct_var.get() or self.rewrite_var.get())
         self.refresh_cancel_button()
         self.status_var.set('AI 正在整理全文，你可以继续输入…')

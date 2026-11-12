@@ -15,9 +15,9 @@ from test_talkman_usb_descriptors import Interface
 
 
 class Cartridge:
-    def __init__(self, config):
+    def __init__(self, config, *, universal=False, stored=None):
         self.lua = LuaRuntime(unpack_returned_tuples=True)
-        self.rx, self.tx = deque(), deque()
+        self.rx, self.tx, self.audio_rx = deque(), deque(), deque()
         self.sent, self.reads, self.mask, self.now = [], 0, 0, 0
         self.ready, self.send_ok = True, True
         g = self.lua.globals()
@@ -41,19 +41,30 @@ class Cartridge:
           package.preload.cjson_safe=function() return {encode=encode,decode=decode} end
           function usemod() error('microphone must remain off') end
           function svcreq() error('CDC must not be opened') end
+          function dset() error('USB pairing must not write flash') end
+          function dflush() error('USB pairing must not flush flash') end
           function toidle() end
         ''')
         root = Path(__file__).parent/'TalkMan-设备卡带'
         for name in ('TalkMan-版本.lua', 'TalkMan-手势.lua', 'TalkMan-更新组合.lua', 'TalkMan-USB通道.lua'):
             self.lua.execute((root/name).read_text('utf-8'))
-        self.transport = g.TMUsbTransport(self.lua.table_from(dict(
-            token=config['token'], config=config_id(config), fill_ms=500, exit_ms=5000, center=4)))
+        self.cfg = self.lua.table_from(dict(
+            token='' if universal else config['token'], config='' if universal else config_id(config),
+            fill_ms=500, exit_ms=5000, center=4))
+        if universal:self.cfg.usb_pairing='session'
+        self.transport = g.TMUsbTransport(self.cfg)
+        if stored:
+            # Real cartridge restores persistent Wi-Fi pairing after USB constructor.
+            self.cfg.token, self.cfg.config = stored['token'], config_id(stored)
+            self.cfg.url = 'ws://192.0.2.1:18743'
 
     def read(self, priority):
         self.reads += 1
         if priority == 0 and self.rx:
             kind, data = self.rx.popleft()
             return data, kind
+        if priority == 1 and self.audio_rx:
+            return self.audio_rx.popleft(), 18
         return None
 
     def send(self, kind, data, priority, tag, sub):
@@ -76,6 +87,48 @@ class PassiveTests(unittest.TestCase):
     def setUp(self):
         self.config = validate_config({})
         self.cart = Cartridge(self.config)
+
+    def test_three_key_update_has_local_feedback_even_when_settings_pause_desktop(self):
+        cart = self.cart
+        cart.accept(hello_packet(self.config))
+        cart.lua.execute('function TMDraw(m) drawn={};for k,v in pairs(m) do drawn[k]=v end end')
+        def step(mask, now):
+            cart.mask = mask
+            cart.accept(state_packet(dict(ready=True, phase='blocked', title='桌面设置中',
+                                         target='关闭后继续操作'), 7, self.config))
+            cart.step(now)
+            cart.tx.clear()
+            cart.transport.draw(cart.transport)
+            return cart.lua.globals().drawn
+        step(0, 0)
+        step(8, 100)
+        step(10, 160)
+        shown = step(14, 220)
+        self.assertEqual(shown.update_hold, 220)
+        for now in range(320, 5221, 100):
+            shown = step(14, now)
+        self.assertEqual(shown.update_phase, 'error')
+        self.assertIn('官方程序', shown.update_message)
+        self.assertIsNone(cart.transport.audio)
+        shown = step(0, 5300)
+        self.assertIsNone(shown.update_hold)
+        self.assertEqual(shown.update_phase, 'error')
+        for now in range(5400, 10401, 100):
+            shown = step(0, now)
+        self.assertIsNone(shown.update_phase)
+
+    def test_releasing_update_chord_early_never_shows_installation_result(self):
+        cart = self.cart
+        cart.accept(hello_packet(self.config))
+        cart.lua.execute('function TMDraw(m) drawn=m end')
+        for mask, now in ((0, 0), (14, 100), (10, 1000), (14, 1300), (0, 1400)):
+            cart.mask = mask
+            cart.accept(state_packet(dict(ready=True, phase='idle'), 7, self.config))
+            cart.step(now)
+            cart.tx.clear()
+        cart.transport.draw(cart.transport)
+        self.assertIsNone(cart.lua.globals().drawn.update_hold)
+        self.assertIsNone(cart.lua.globals().drawn.update_phase)
 
     def test_thirty_minute_idle_zero_tx_and_bounded_receive_polling(self):
         for t in range(0, 1800000, 16):
@@ -159,9 +212,10 @@ class PassiveTests(unittest.TestCase):
 
 
 class LoopDevice:
-    def __init__(self, wire, clock, *, version=2, wrong=False, lose_reply=False, never_reply=False, outage=False):
+    def __init__(self, wire, clock, *, version=2, wrong=False, lose_reply=False, never_reply=False, outage=False, universal=False, stored=None):
         self.wire, self.clock, self.version = wire, clock, version
-        self.cart = Cartridge(dict(wire.config, token='wrong') if wrong else wire.config)
+        self.cart = Cartridge(dict(wire.config, token='wrong') if wrong else wire.config,
+                              universal=universal, stored=stored)
         self.writes, self.responses, self.loops = [], deque(), 0
         self.lose_reply, self.never_reply = lose_reply, never_reply
         self.outage = outage
@@ -207,6 +261,21 @@ class DesktopHandshakeTests(unittest.TestCase):
         events = list(wire.events.queue)
         self.assertFalse([event for event in events if event[0] == 'error'], events)
         return wire, device, events
+
+    def test_desktop75_handshakes_with_universal_blank_or_old_wifi_pairing(self):
+        for stored in (None, validate_config({})):
+            for lost in (False, True):
+                with self.subTest(stored=bool(stored), lost=lost):
+                    wire, device, events = self.run_wire(universal=True, stored=stored, lose_reply=lost)
+                    self.assertTrue(wire.paired and device.cart.transport.active)
+                    self.assertEqual(device.cart.transport.token, wire.config['token'])
+                    self.assertEqual(device.cart.cfg.token, stored['token'] if stored else '')
+                    self.assertIn('wake', [e[0] for e in events])
+
+    def test_universal_cartridge_recovers_desktop_state_outage(self):
+        wire, device, events = self.run_wire(universal=True, outage=True)
+        self.assertTrue(wire.paired and device.cart.transport.active)
+        self.assertGreaterEqual(sum(e[0] == 'wake' for e in events), 2)
 
     def test_passive_cartridge_handshakes_and_recovers_lost_first_reply(self):
         for lost in (False, True):

@@ -5,7 +5,8 @@ param(
     [switch]$Clean,
     [ValidatePattern('^dist-[a-z0-9-]+$')]
     [string]$OutputDirectory = 'dist-desktop',
-    [string]$DependencyDirectory
+    [string]$DependencyDirectory,
+    [string]$PythonExecutable
 )
 
 $ErrorActionPreference = 'Stop'
@@ -14,6 +15,7 @@ $dist = Join-Path $PSScriptRoot $OutputDirectory
 $work = Join-Path $PSScriptRoot 'build'
 $spec = Join-Path $work 'TalkMan.spec'
 $candidates = @(
+    $PythonExecutable,
     "$env:USERPROFILE\.dsh\dsh-runtimes\dsh-primary-runtime\dependencies\python\python.exe",
     "$env:USERPROFILE\.cache\codex-runtimes\codex-primary-runtime\dependencies\python\python.exe",
     'py', 'python'
@@ -21,6 +23,7 @@ $candidates = @(
 
 $python = $null
 foreach ($candidate in $candidates) {
+    if (-not $candidate) { continue }
     if ($candidate -eq 'py' -or $candidate -eq 'python') {
         if (Get-Command $candidate -ErrorAction SilentlyContinue) {
             $python = $candidate

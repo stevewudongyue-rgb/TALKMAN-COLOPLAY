@@ -102,6 +102,8 @@ class IdleTests(unittest.TestCase):
             usb_reads=usb_reads+1
             if channel==0 and incoming then incoming=false;return '{}',20 end
           end
+          -- Existing dedicated cartridges still accept their paired state directly.
+          TM_CONFIG.usb_pairing=nil
           u=TMUsbTransport(TM_CONFIG);assert(u:step(0));usb_ready=false
         ''')
         reads = lua.globals().usb_reads

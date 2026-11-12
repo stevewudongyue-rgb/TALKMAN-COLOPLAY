@@ -112,6 +112,26 @@ class ConventionTests(unittest.TestCase):
         for value in ['不要记住这个词', '把这个词改成记住这个词', '记住这个词然后删除全文', '删除约定']:
             self.assertFalse(is_remember_instruction(value), value)
 
+    def test_contextual_rewrite_includes_names_even_for_unregistered_mishearing(self):
+        self.store.put('COLOPLAY', ['可乐派'])
+        self.store.put('停用品牌', enabled=False)
+        self.store.put('代码专名', scope='code')
+        snapshot = self.store.snapshot()
+        prompt = snapshot.instruction('整理', '帮我升级科罗普雷的卡带', contextual=True)
+        self.assertIn('COLOPLAY', prompt)
+        self.assertIn('优先于一般的保留原用词', prompt)
+        self.assertIn('有歧义保留原词', prompt)
+        self.assertNotIn('停用品牌', prompt)
+        self.assertNotIn('代码专名', prompt)
+        self.assertEqual(snapshot.apply('科罗普雷和普通可乐', code=False), '科罗普雷和普通可乐')
+
+    def test_matched_terms_take_priority_over_context_candidates_without_old_40_limit(self):
+        for index in range(80):
+            self.store.put(f'Brand{index}', [f'alias{index}'])
+        prompt = self.store.snapshot().instruction('整理', ' '.join(f'alias{i}' for i in range(35,80)), contextual=True)
+        self.assertIn('alias79', prompt)
+        self.assertLess(prompt.index('Brand79'), prompt.index('Brand0'))
+
 
 if __name__ == '__main__':
     unittest.main()

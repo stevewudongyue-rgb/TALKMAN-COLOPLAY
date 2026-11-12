@@ -140,7 +140,7 @@ print('公网核验失败，已恢复原清单。')
     report = {'版本': version, '原版本': args.expected_current,
               '更新清单SHA256': new_hash, '原清单SHA256': old_hash,
               '客户端下载验证': checked, '旧版发现更新': True, '新版不重复更新': True,
-              '设备卡带': '按更新说明从各电脑导出；不上传私人配对 ROM。'}
+              '设备卡带': '安装包内提供通用 ROM；USB 通过官方程序导入，已有 Wi-Fi 配对按说明更新。不上传私人配对信息。'}
     args.report.write_text(json.dumps(report, ensure_ascii=False, indent=2) + '\n', encoding='utf-8')
     print(json.dumps(report, ensure_ascii=False, indent=2))
 

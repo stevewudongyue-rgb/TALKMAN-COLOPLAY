@@ -41,6 +41,20 @@ class SimulatorTests(DesktopTests):
         target=TargetWindow(1,2,'豆包','对话','doubao.exe')
         self.app.target_controller=Mock(selected=target,windows=[target])
 
+    def test_usb_three_key_update_reports_manual_install_without_editor_actions(self):
+        self.session.source = 'usb'
+        self.app.set_text('保留这段正文')
+        with patch.object(self.device, 'execute') as execute:
+            self.step(14, 100)
+            self.step(14, 5200)
+            self.step(0, 5300)
+            state = self.session.display_state()
+            self.assertEqual(state['update_phase'], 'error')
+            self.assertIn('官方程序导入卡带', state['update_message'])
+            self.assertNotIn('Wi-Fi', state['update_message'])
+            execute.assert_not_called()
+            self.assertEqual(self.app.current_text(), '保留这段正文')
+
     def test_sim_fill_transaction_cancel_and_stale_selection(self):
         self.target()
         with patch.object(self.app,'fill_to_target') as fill,patch.object(self.app.target_controller,'cycle') as cycle:

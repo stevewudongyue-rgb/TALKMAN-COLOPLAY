@@ -91,6 +91,45 @@ class AIReviewTests(unittest.TestCase):
         a.undo()
         self.assertEqual(a.current_text(), '请把苹果拿过来。')
 
+    def test_rewrite_corrects_known_alias_before_preview_and_uses_request_snapshot(self):
+        a = self.app
+        identifier = a.conventions.put('COLOPLAY', ['可乐派'])
+        a.set_text('使用可乐派的麦克风。')
+        a.organize_once()
+        kind, token, _ = a.run_worker.call_args.args
+        a.conventions.put('其他品牌', ['可乐派'], identifier=identifier)
+        a.events.put((kind, token, 'ok', '使用可乐派的麦克风。'))
+        self.pump()
+        self.assertEqual(a.current_text(), '使用可乐派的麦克风。')
+        self.assertIsNotNone(a.ai_review)
+        self.assertEqual(a.ai_review_text.get('1.0', 'end-1c'), '使用COLOPLAY的麦克风。')
+        a.ai_review_finish(True)
+        self.assertEqual(a.current_text(), '使用COLOPLAY的麦克风。')
+        a.undo()
+        self.assertEqual(a.current_text(), '使用可乐派的麦克风。')
+
+    def test_automatic_rewrite_corrects_alias_but_layout_only_keeps_words(self):
+        a = self.app
+        a.conventions.put('COLOPLAY', ['可乐派'])
+        a.preview_ai_var.set(False)
+        a.set_text('可乐派很好。')
+        a.apply_auto()
+        kind, token, _ = a.run_worker.call_args.args
+        a.events.put((kind, token, 'ok', '可乐派很好。'))
+        self.pump()
+        self.assertEqual(a.current_text(), 'COLOPLAY很好。')
+        a.rewrite_var.set(False)
+        a.filler_var.set(False)
+        a.punct_var.set(False)
+        a.layout_var.set(True)
+        a.set_text('可乐派很好。\n第二句。')
+        self.assertNotIn('约定词规则', a.ai_instruction())
+        a.apply_auto()
+        kind, token, _ = a.run_worker.call_args.args
+        a.events.put((kind, token, 'ok', '可乐派很好。\n\n第二句。'))
+        self.pump()
+        self.assertEqual(a.current_text(), '可乐派很好。\n\n第二句。')
+
     def test_changing_options_releases_once_button_and_rejects_stale_result(self):
         a = self.app
         a.set_text('请把苹果拿过来。')

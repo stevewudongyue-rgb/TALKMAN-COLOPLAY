@@ -139,6 +139,17 @@ class FakeMacAudio(FakeAudio):
 
 
 class AudioMeterTests(unittest.TestCase):
+    def test_device_silence_diagnostic_points_to_coloplay_not_system_default_mic(self):
+        session = voice.VoiceSession('offline-test', 'model', lambda *event: None)
+        session.input_stream_factory = lambda *args: None
+        with self.assertRaisesRegex(voice._VoiceError, '没有收到 COLOPLAY'):
+            session._validate_recording()
+        session._capture(b'\x00\x00' * 1600, 1600, None, False)
+        with self.assertRaisesRegex(voice._VoiceError, 'COLOPLAY 音频.*全部为静音'):
+            session._validate_recording()
+        session._capture(b'\x01\x00' * 1600, 1600, None, False)
+        session._validate_recording()
+
     def test_meter_is_throttled_and_stops_after_cancel(self):
         events = []
         session = voice.VoiceSession('private-key', 'model', lambda *event: events.append(event))

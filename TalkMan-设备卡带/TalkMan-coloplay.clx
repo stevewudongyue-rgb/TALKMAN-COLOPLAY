@@ -283,7 +283,9 @@ function _draw()
   target_page_names=state.target_page_names,target_page_start=state.target_page_start,
   target_page=state.target_page,target_pages=state.target_pages,
   target_waiting=state.target_waiting,target_scanning=state.target_scanning,target_progress=state.target_progress,
-  configured=cfg.url~='',buttons=buttons,modifier=btn(3),
+  configured=cfg.url~='' or cfg.usb_pairing=='session',buttons=buttons,modifier=btn(3),
+  connection_hint=cfg.usb_pairing=='session' and not live() and
+   ((not airdata_ready or not airdata_get or not airdata_send) and '请升级 USB 数据固件' or '请用 USB 连接电脑') or nil,
   ul=gesture.ul,exit_ms=cfg.exit_ms,can_fill=state.can_fill,can_copy=state.can_copy,
   pending=pending and pending.action=='knob' and (state.send_seconds or 0)==0,armed=pending and state.arm==pending.id,
   hold_short=pending and now()-pending.started<cfg.fill_ms,

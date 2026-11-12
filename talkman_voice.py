@@ -273,6 +273,12 @@ class VoiceSession:
         self._emit("audio", level)
 
     def _validate_recording(self) -> None:
+        if getattr(self, 'input_stream_factory', None):
+            if not self._frames:
+                raise _VoiceError('没有收到 COLOPLAY 麦克风音频。请确认设备正在运行 TalkMan 卡带、USB 已连接，并重新开始录音。')
+            if not self._peak:
+                raise _VoiceError('已收到 COLOPLAY 音频，但本轮全部为静音。请靠近设备内建麦克风说话，并检查设备麦克风是否被遮挡或静音。')
+            return
         if not self._frames:
             raise _VoiceError("没有录到音频：麦克风未返回数据。请检查系统输入设备，并退出后重新打开程序。")
         if not self._peak:

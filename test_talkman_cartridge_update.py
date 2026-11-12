@@ -19,6 +19,17 @@ ROOT=Path(__file__).parent/'TalkMan-设备卡带'
 
 
 class ChordTests(unittest.TestCase):
+    def test_paused_screen_does_not_mislabel_update_chord_as_clear(self):
+        r=DeviceRuntime();r.step(0,0)
+        r.step(8,100);r.step(10,160)
+        r.render(dict(ready=True,phase='blocked'),160)
+        self.assertIn('桌面设置中',[x['text'] for x in r.text_layout])
+        self.assertNotIn('暂不能清空',[x['text'] for x in r.text_layout])
+        r.step(14,220)
+        r.render(dict(ready=True,phase='blocked',device_build=CARTRIDGE_BUILD),500)
+        self.assertIn('更新卡带',[x['text'] for x in r.text_layout])
+        self.assertNotIn('桌面设置中',[x['text'] for x in r.text_layout])
+
     def test_delayed_action_does_not_change_meaning_when_phase_changes(self):
         r=DeviceRuntime();r.step(0,0)
         r.step(2,100,'recording')
@@ -186,6 +197,10 @@ class DownloadTests(unittest.TestCase):
         source=builder.flatten(ROOT/'TalkMan-coloplay.clx')
         metadata=json.loads((ROOT/'TalkMan-update.json').read_text('utf-8'))
         self.assertEqual(metadata['source_sha256'],hashlib.sha256(source.encode()).hexdigest())
+        self.assertEqual(metadata['build'],CARTRIDGE_BUILD)
+        self.assertEqual(metadata['size'],(ROOT/'TalkMan_update.rom').stat().st_size)
+        self.assertEqual(metadata['sha256'],hashlib.sha256((ROOT/'TalkMan_update.rom').read_bytes()).hexdigest())
+        self.assertIn("usb_pairing='session'",(ROOT/'TalkMan-连接配置.lua').read_text('utf-8'))
         self.assertIn("token=''",(ROOT/'TalkMan-连接配置.lua').read_text('utf-8'))
         download=CartridgeDownload('127.0.0.1')
         try:

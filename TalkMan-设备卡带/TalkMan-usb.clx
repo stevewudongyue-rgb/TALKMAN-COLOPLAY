@@ -17,7 +17,7 @@ function _init() btnpcfg(255,0) end
 function _update() usb:step(stat(12)) end
 function _draw()
  if usb:draw() then return end
- TMDraw({now=stat(12),ready=false,configured=false,buttons={},exit_ms=5000,device_build=TM_DEVICE_BUILD,
+ TMDraw({now=stat(12),ready=false,configured=TM_CONFIG.usb_pairing=='session',buttons={},exit_ms=5000,device_build=TM_DEVICE_BUILD,
   connection_hint=airdata_ready and '等待电脑状态' or '请升级 USB 数据固件'})
 end
 function _idle_update() usb:resume() end

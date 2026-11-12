@@ -800,7 +800,9 @@ class SettingsPanelMixin:
             self.audio_source_var.set(source)
             self.status_var.set('录音来源已保存：'+source_label.get())
         self.audio_source_combobox.bind('<<ComboboxSelected>>',change_source)
-        ttk.Label(box,text='设备麦克风需新版固件与卡带，通过 USB 上传；断开时提示重连，不自动换麦克风。',
+        ttk.Label(box,text='选择 COLOPLAY 后，录音直接使用设备内建麦克风，通过 USB 上传。'
+                  '请先打开卡带并连接 USB；断开时不会自动换回电脑麦克风。'
+                  '此录音来源供 TalkMan 使用，不会在系统声音设置中新增音频设备。',
                   wraplength=585,style='Muted.TLabel').pack(anchor='w',pady=(0,12))
         self.asr_provider_choice = tk.StringVar(value=PROVIDERS[self.asr_settings.provider].label)
         self.asr_provider_combobox = self._settings_field(box, "识别服务", self.asr_provider_choice,
