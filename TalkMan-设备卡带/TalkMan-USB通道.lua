@@ -159,7 +159,7 @@ function TMUsbTransport(cfg)
    elseif action=='cartridge_update' then
     -- USB 三键提示由卡带本地完成，桌面设置暂停操作时也能看到。
     -- 本协议没有 USB 文件写入／安装能力，不能伪装为已完成更新。
-    self.update_until=t+5000
+    self.update_until=t+6000
    elseif action=='exit' then
     self:stop_audio();self:send(0,true);self.exited=true;self.active=false;toidle();return true
    end
@@ -179,7 +179,7 @@ function TMUsbTransport(cfg)
   m.update_hold=self.gesture.started
   local update_phase,update_message=m.update_phase,m.update_message
   if self.update_until and m.now<self.update_until then
-   m.update_phase='error';m.update_message='USB请用官方程序导入卡带'
+   m.update_phase='done';m.update_message='电脑正在准备卡带'
   end
   m.modifier=m.buttons[3];m.ul=self.gesture.ul;m.exit_ms=cfg.exit_ms
   m.hold_short=self.gesture.knob~=nil and m.now-self.gesture.knob<cfg.fill_ms

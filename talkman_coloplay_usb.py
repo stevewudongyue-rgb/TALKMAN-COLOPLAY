@@ -187,10 +187,16 @@ class UsbWire:
             if 3 not in endpoints or endpoints[3].bmAttributes&3!=2:raise RuntimeError('USB 数据端点不匹配')
             if 0x83 not in endpoints or endpoints[0x83].bmAttributes&3!=2:
                 raise RuntimeError('此固件未提供 USB 双向数据通道，请更新固件或使用 Wi-Fi 卡带')
+            read_size = int(endpoints[0x83].wMaxPacketSize)
+            if read_size not in (8, 16, 32, 64, 512, 1024):
+                raise RuntimeError('USB 数据端点的单包大小无效')
             usb.util.claim_interface(dev,3);claimed=True
             # 只声明 vendor 数据接口，不打开设备的 CDC 串口或 HID 接口。
             self.put('connected','USB 数据接口已打开，等待 USB 卡带')
             incoming=Frames();fid=secrets.randbelow(65536);sent=0
+            self.audio.transport_stats = incoming.stats
+            self.audio.transport_crc_frames = incoming.crc_frames
+            self.audio.read_packet_bytes = read_size
             ping_at=0;pong_at=0;hello_at=-float('inf');ping_id=secrets.randbelow(65536)
             opened_at=time.monotonic()
             while not self.stop.is_set():
@@ -207,9 +213,15 @@ class UsbWire:
                     if dev.write(3,ping,timeout=300)!=len(ping):raise RuntimeError('USB 状态检测发送失败')
                     ping_at=now
                 if self.v2 and now-pong_at>3:raise RuntimeError('USB 设备未响应')
-                try:chunk=bytes(dev.read(0x83,512,timeout=10))
+                # Full-speed COLOPLAY uses 64-byte bulk packets. Request one
+                # endpoint packet so a full packet completes the native read;
+                # do not wait for 512 bytes/a short packet and then cancel a
+                # partially filled multi-packet read on the 10ms timeout.
+                # CXUS frames still span multiple reads and require CRC checks.
+                try:chunk=bytes(dev.read(0x83,read_size,timeout=10))
                 except usb.core.USBTimeoutError:chunk=b''
                 for frame in incoming.feed(chunk):
+                    self.audio.observe_frame(frame)
                     if frame.kind==PONG and len(frame.data)==38:
                         version,echo=struct.unpack_from('<HH',frame.data)
                         if version==2 and echo==ping_id:self.v2=True;pong_at=time.monotonic()

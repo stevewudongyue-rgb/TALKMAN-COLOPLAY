@@ -46,6 +46,7 @@ local resumed=false
 local message='请在电脑配对'
 local exit_started=0
 local usb_sn=0
+local rom_prepare_until=0
 local function now() return stat(12) end
 local usb_transport=TMUsbTransport and TMUsbTransport(cfg)
 local was_usb=false
@@ -200,7 +201,13 @@ function _update()
   if action=='update_hold' then
    turns=0;target_commit=false;scrolls=0;deferred=nil;cancel_arm();awaiting=nil
   elseif action=='cartridge_update' then
-   updater:check(now(),live(),state.phase)
+   if live() then
+    serial=serial+1
+    enqueue({type='cartridge_prepare',id=tostring(serial)})
+    rom_prepare_until=now()+6000
+   else
+    updater:fail('请先连接电脑',now())
+   end
   elseif action=='exit' then
    exiting=true; exit_started=now(); pending=nil; outgoing={}
   elseif action=='cancel_arm' then turns=0;target_commit=false; cancel_arm()
@@ -273,7 +280,9 @@ function _draw()
  local buttons={}
  for i=0,7 do buttons[i]=btn(i) end
  TMDraw({now=now(),ready=live(),phase=state.phase,title=state.title,device_build=TM_DEVICE_BUILD,
-  update_hold=gesture.started,update_phase=updater.phase,update_message=updater.message,
+  update_hold=gesture.started,
+  update_phase=now()<rom_prepare_until and 'done' or updater.phase,
+  update_message=now()<rom_prepare_until and '电脑正在准备卡带' or updater.message,
   input_selecting=state.input_selecting,input_index=state.input_index,input_count=state.input_count,
   input_target=state.input_target,input_error=state.input_error,input_loading=state.input_loading,
   editor_focused=state.editor_focused,selection_count=state.selection_count,selecting=state.selecting,send_seconds=state.send_seconds,

@@ -31,7 +31,7 @@ SOURCE_FILES = ("talkman_coloplay_guide_preview.py", "talkman_coloplay_guide.py"
                 "talkman_onboarding.py", "talkman_mac_guide.py", "talkman_hover_help.py", "talkman_ai_edit.py",
                 "talkman_conventions.py", "talkman_conventions_ui.py", "talkman_convention_learning.py",
                 "talkman_delivery_ui.py", "talkman_translation.py", "talkman_translation_ui.py",
-                "talkman_coloplay.py", "talkman_coloplay_protocol.py", "talkman_coloplay_server.py", "talkman_coloplay_discovery.py",
+                "talkman_coloplay.py", "talkman_coloplay_official_rom.py", "talkman_coloplay_protocol.py", "talkman_coloplay_server.py", "talkman_coloplay_discovery.py",
                 "talkman_coloplay_highlight.py", "talkman_coloplay_preview.py", "talkman_coloplay_usb.py",
                 "talkman_airdata.py", "talkman_opus.py", "talkman_usb_audio.py")
 INFO_PLIST = {
@@ -65,7 +65,7 @@ a = Analysis(
     pathex=[{str(ROOT)!r}],
     binaries=audio_binaries + usb_binaries,
     datas=audio_data + usb_data + collect_data_files("certifi") + [({str(ROOT / "TalkMan-assets")!r}, "TalkMan-assets"), ({str(ROOT / "TalkMan-设备卡带")!r}, "TalkMan-设备卡带")],
-    hiddenimports=audio_hidden + usb_hidden + mac_hidden + collect_submodules("websockets") + collect_submodules("usb.backend") + ["_cffi_backend", "sounddevice", "websocket", "certifi", "regex", "lupa.lua54"],
+    hiddenimports=audio_hidden + usb_hidden + mac_hidden + collect_submodules("websockets") + collect_submodules("usb.backend") + ["_cffi_backend", "sounddevice", "websocket", "certifi", "regex", "lupa.lua54", "talkman_coloplay_official_rom"],
     hookspath=[],
     runtime_hooks=[{str(ROOT / "TalkMan-证书钩子.py")!r}],
     excludes=[],

@@ -18,10 +18,11 @@ class Interface:
     def iInterface(self):
         raise AssertionError('Device string descriptors must not be requested')
 
-    def __init__(self, incoming=True):
+    def __init__(self, incoming=True, packet_size=64):
         self.endpoints = [SimpleNamespace(bEndpointAddress=3, bmAttributes=2)]
         if incoming:
-            self.endpoints.append(SimpleNamespace(bEndpointAddress=0x83, bmAttributes=2))
+            self.endpoints.append(SimpleNamespace(bEndpointAddress=0x83, bmAttributes=2,
+                                                  wMaxPacketSize=packet_size))
 
     def __iter__(self):
         return iter(self.endpoints)

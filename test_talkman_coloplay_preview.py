@@ -44,14 +44,15 @@ class SimulatorTests(DesktopTests):
     def test_usb_three_key_update_reports_manual_install_without_editor_actions(self):
         self.session.source = 'usb'
         self.app.set_text('保留这段正文')
-        with patch.object(self.device, 'execute') as execute:
+        with patch.object(self.device, 'execute') as execute, patch.object(self.device, 'prepare_official_rom') as prepare:
             self.step(14, 100)
             self.step(14, 5200)
             self.step(0, 5300)
             state = self.session.display_state()
-            self.assertEqual(state['update_phase'], 'error')
-            self.assertIn('官方程序导入卡带', state['update_message'])
+            self.assertEqual(state['update_phase'], 'done')
+            self.assertIn('电脑正在准备卡带', state['update_message'])
             self.assertNotIn('Wi-Fi', state['update_message'])
+            prepare.assert_called_once_with()
             execute.assert_not_called()
             self.assertEqual(self.app.current_text(), '保留这段正文')
 

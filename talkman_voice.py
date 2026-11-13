@@ -212,6 +212,7 @@ class VoiceSession:
         self._device_label = "系统默认输入"
         self._permission = None
         self._phase = "准备录音"
+        self._usb_audio_stats = None
         self._stop_reason = ""
         self._worker: threading.Thread | None = None
         self._transcript = _Transcript()
@@ -290,17 +291,48 @@ class VoiceSession:
         self._validate_recording()
         return "已收到麦克风音频，但识别服务没有识别到语音。请查看「设置 → 语音 → 复制录音诊断」，核对输入电平和识别服务。"
 
-    def _report_diagnostic(self, outcome: str) -> None:
+    def _report_diagnostic(self, outcome: str, detail: str = '') -> None:
         # No audio, transcript, credentials or service response is retained here.
         permission = {0: "等待首次授权", 1: "系统限制", 2: "未允许", 3: "已允许"}.get(
             self._permission, "未知" if sys.platform == "darwin" else "由系统管理")
         if getattr(self, 'input_stream_factory', None):
             permission = '由 COLOPLAY 主动录入，未打开电脑麦克风'
         peak = f"{20 * math.log10(self._peak / 32768):.1f} dBFS" if self._peak else "静音（全零）"
+        # detail is the already sanitized terminal message; never include a
+        # successful transcript or the raw exception/service response.
+        reason = f"\n失败原因：{detail}" if outcome == 'error' and detail else ''
+        stats = self._usb_audio_stats
+        if stats is not None:
+            def seq(key):
+                value = stats[key]
+                return '未收到' if value is None else str(value)
+            reason += (f"\nUSB 开始确认：{'已收到' if stats['confirmed'] else '未收到'}"
+                       f"\nUSB 音频消息：{stats['packets']} 包／{stats['payload_bytes']} 字节"
+                       f"\nOpus 解码：{stats['opus_units']} 单元／{stats['pcm_frames']} 采样"
+                       f"\nUSB 序号：起始 {seq('begin_seq')}，最后成功 {seq('last_seq')}"
+                       f"\nUSB 重复包：{stats['duplicates']}；格式错误：{stats['format_errors']}"
+                       f"\nUSB 其它普通队列消息：{stats['other_normal']}"
+                       f"\n设备主动停止：{'是' if stats['device_stopped'] else '未收到停止通知'}"
+                       f"\n结束时距最后音频：{stats['last_audio_age_ms']} ms"
+                       f"\nUSB 中止代码：{stats['failure_code'] or '无'}")
+            parser = stats['parser']
+            reason += (f"\nUSB 解析：CRC 错误 {parser['crc_errors']}，异常包头 {parser['invalid_headers']}，"
+                       f"重同步跳过 {parser['discarded_bytes']} 字节")
+            if stats.get('read_packet_bytes'):
+                reason += f"\nUSB 单次读取上限：{stats['read_packet_bytes']} 字节（端点单包）"
+            if stats.get('crc_frames'):
+                reason += '\nUSB CRC 失败包头（未验证：类型/优先级/序号/声明载荷字节/下一标记偏移，-1为未见）：' + ', '.join(
+                    '/'.join(map(str, item)) for item in stats['crc_frames'])
+            if stats['recent_frames']:
+                reason += '\nUSB 最近包头（类型/优先级/序号/字节数）：' + ', '.join(
+                    '/'.join(map(str, item)) for item in list(stats['recent_frames']))
+            if stats['gap_expected'] is not None:
+                reason += (f"\nUSB 序号缺口：期望 {seq('gap_expected')}，实际 {seq('gap_received')}，"
+                           f"间隔缺少 {stats['gap_missing']} 个队列序号（不等同于音频丢包数）")
         self._emit("diagnostic", f"输入设备：{self._device_label}\n麦克风权限：{permission}\n"
                    f"音频格式：16000 Hz／单声道／PCM16\n收到帧数：{self._frames}（{self._frames / SAMPLE_RATE:.2f} 秒）\n"
                    f"峰值：{peak}\n结束阶段：{self._phase}\n结果：{'完成' if outcome == 'done' else '未完成'}\n"
-                   f"停止原因：{ {'user': '用户结束', 'limit': '时长上限'}.get(self._stop_reason, '程序结束') }")
+                   f"停止原因：{ {'user': '用户结束', 'limit': '时长上限'}.get(self._stop_reason, '程序结束') }" + reason)
 
     def _capture(self, indata, frames: int, _timing, status) -> None:
         if self._stop.is_set() or self._cancel.is_set():
@@ -344,6 +376,7 @@ class VoiceSession:
             try:
                 self._check_cancel()
                 stream = factory(self._capture, failed)
+                self._usb_audio_stats = getattr(stream, 'stats', None)
                 stream.start()
                 self._check_cancel()
                 if self._stop.is_set():
@@ -611,7 +644,7 @@ class VoiceSession:
                     break
             self._finished.set()
             if terminal:
-                self._report_diagnostic(terminal[0])
+                self._report_diagnostic(*terminal)
                 self._emit(*terminal)
 
 
@@ -740,5 +773,5 @@ class FileVoiceSession(VoiceSession):
                     break
             self._finished.set()
             if terminal:
-                self._report_diagnostic(terminal[0])
+                self._report_diagnostic(*terminal)
                 self._emit(*terminal)

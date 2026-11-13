@@ -1,6 +1,7 @@
 """CXUS v2 framing. No device access, microphone or network side effects."""
 import binascii
 import struct
+from collections import deque
 from dataclasses import dataclass
 
 HEADER = struct.Struct('<IHHIHHHH')
@@ -30,6 +31,10 @@ class Frames:
     def __init__(self, limit=8192):
         self.buffer = bytearray()
         self.limit = limit
+        self.stats = dict(crc_errors=0, invalid_headers=0, discarded_bytes=0)
+        # Metadata only: error index, kind, priority, seq, payload size,
+        # next magic offset. Never retain damaged audio or pairing payloads.
+        self.crc_frames = deque(maxlen=4)
 
     def feed(self, chunk):
         self.buffer.extend(chunk)
@@ -37,15 +42,19 @@ class Frames:
         while len(self.buffer) >= HEADER.size:
             start = self.buffer.find(b'CXUS')
             if start < 0:
+                self.stats['discarded_bytes'] += len(self.buffer)-3
                 del self.buffer[:-3]
                 break
             if start:
+                self.stats['discarded_bytes'] += start
                 del self.buffer[:start]
             if len(self.buffer) < HEADER.size:
                 break
             _, kind, flags, size, seq, tag, sub, crc = HEADER.unpack_from(self.buffer)
             if (kind not in (*range(16, 32), PONG) or flags & ~1 or
                     size > self.limit or (kind >= 32 and size > 44)):
+                self.stats['invalid_headers'] += 1
+                self.stats['discarded_bytes'] += 1
                 del self.buffer[0]
                 continue
             end = HEADER.size+size
@@ -53,6 +62,10 @@ class Frames:
                 break
             data = bytes(self.buffer[HEADER.size:end])
             if crc and binascii.crc_hqx(data, 0xffff) != crc:
+                self.stats['crc_errors'] += 1
+                self.crc_frames.append((self.stats['crc_errors'], kind, flags & 1,
+                                        seq, size, self.buffer.find(b'CXUS', HEADER.size)))
+                self.stats['discarded_bytes'] += 1
                 del self.buffer[0]
                 continue
             del self.buffer[:end]

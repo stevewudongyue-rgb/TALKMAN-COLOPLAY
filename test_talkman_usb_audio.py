@@ -16,6 +16,51 @@ from talkman_coloplay_protocol import validate_config, config_id
 
 
 class FramingTests(unittest.TestCase):
+    def test_valid_mixed_frames_survive_every_split_and_usb_packet_size(self):
+        frames = [packet(AUDIO, b'\0\x7a'+bytes(range(122)), seq=100),
+                  packet(19, b'B'*158, seq=361, priority=1),
+                  packet(PONG, bytes(38), seq=500),
+                  packet(AUDIO, b'\0\x72'+bytes(range(114)), seq=101)]
+        raw = b''.join(frames)
+        expected = [(16, 100), (19, 361), (33, 500), (16, 101)]
+        for split in range(len(raw)+1):
+            parser = Frames()
+            result = parser.feed(raw[:split])+parser.feed(raw[split:])
+            self.assertEqual([(f.kind, f.seq) for f in result], expected)
+            self.assertFalse(any(parser.stats.values()))
+        for size in (1, 8, 16, 20, 32, 64, 512, 1024):
+            parser, result = Frames(), []
+            for start in range(0, len(raw), size):
+                result += parser.feed(raw[start:start+size])
+                self.assertEqual(parser.feed(b''), [])  # Idle/timeout between reads.
+            self.assertEqual([(f.kind, f.seq) for f in result], expected)
+            self.assertFalse(any(parser.stats.values()))
+
+    def test_truncated_64_byte_prefix_reproduces_report_without_accepting_audio(self):
+        audio = packet(AUDIO, b'\0\x7a'+bytes(range(122)), seq=100)
+        buttons = packet(19, b'B'*158, seq=361, priority=1)
+        following = packet(AUDIO, b'\0\x72'+bytes(range(114)), seq=101)
+        raw = audio[:64]+buttons+following
+        for size in (1, 64, 512):
+            parser, result = Frames(), []
+            for start in range(0, len(raw), size):
+                result += parser.feed(raw[start:start+size])
+            self.assertEqual([(f.kind, f.seq) for f in result], [(19, 361), (16, 101)])
+            self.assertEqual(parser.stats, dict(crc_errors=1, invalid_headers=0, discarded_bytes=64))
+            self.assertEqual(list(parser.crc_frames), [(1, 16, 0, 100, 124, 64)])
+
+    def test_crc_metadata_is_bounded_and_does_not_record_payload(self):
+        raw = bytearray(packet(AUDIO, b'private microphone audio', seq=20, sub=1234))
+        raw[-1] ^= 1
+        parser = Frames()
+        for _ in range(12):
+            parser.feed(raw)
+        self.assertEqual(parser.stats['crc_errors'], 12)
+        self.assertEqual(len(parser.crc_frames), 4)
+        self.assertEqual(parser.crc_frames[-1][:5], (12, 16, 0, 20, 24))
+        self.assertNotIn('private', repr(parser.crc_frames))
+        self.assertNotIn('1234', repr(parser.crc_frames))
+
     def test_split_coalesced_noise_crc_and_bounds(self):
         good=packet(AUDIO,b'\0\3abc',seq=65535,sub=55)
         broken=bytearray(good);broken[-1]^=1
@@ -25,6 +70,8 @@ class FramingTests(unittest.TestCase):
         result=parser.feed(good[17:]+good)
         self.assertEqual(len(result),2)
         self.assertEqual((result[0].seq,result[0].sub,result[0].data),(65535,55,b'\0\3abc'))
+        self.assertEqual(parser.stats['crc_errors'], 1)
+        self.assertEqual(parser.stats['invalid_headers'], 1)
         for _ in range(10):parser.feed(b'garbage'*10000)
         self.assertLess(len(parser.buffer),20)
 
@@ -90,6 +137,60 @@ class AudioTests(unittest.TestCase):
     def test_dropped_audio_aborts_and_does_not_decode(self):
         self.begin();self.audio(12)
         self.decoder.decode.assert_not_called();self.failure.assert_called_once()
+
+    def test_gap_diagnostic_retains_counts_after_cleanup_without_payloads(self):
+        self.begin(65534)
+        self.audio(65535);self.audio(65535);self.audio(0);self.audio(2)
+        self.assertIsNone(self.manager.stream)
+        self.assertEqual(self.capture.call_count, 2)
+        stats = self.stream.stats
+        self.assertEqual((stats['packets'], stats['payload_bytes'], stats['opus_units'],
+                          stats['pcm_frames'], stats['duplicates']), (4, 12, 2, 1920, 1))
+        self.assertEqual((stats['begin_seq'], stats['last_seq'], stats['gap_expected'],
+                          stats['gap_received'], stats['gap_missing']), (65534, 0, 1, 2, 1))
+        self.assertEqual(stats['failure_code'], 'sequence_gap')
+        self.assertTrue(stats['confirmed'])
+        self.assertNotIn(self.stream.session, repr(stats))
+        self.assertNotIn(self.manager.config['token'], repr(stats))
+        self.assertFalse(any(isinstance(value, bytes) for value in stats.values()))
+        before = dict(stats)
+        self.manager.disconnect()
+        self.assertEqual(stats, before)
+
+    def test_format_timeout_and_device_stop_are_distinguishable(self):
+        self.begin();self.audio(11, payload=b'\0\1a\0')
+        self.assertEqual(self.stream.stats['format_errors'], 1)
+        self.assertEqual(self.stream.stats['failure_code'], 'audio_format')
+        self.assertEqual(self.stream.stats['opus_units'], 0)
+
+        self.stream = self.manager.create(self.capture, self.failure)
+        self.begin();self.audio(11)
+        self.control('stopped')
+        self.manager.receive(Frame(17, 0, 12, 0, 0, b'input'))
+        self.manager.tick(self.stream.last_audio+2.01)
+        self.assertEqual(self.stream.stats['failure_code'], 'audio_timeout')
+        self.assertTrue(self.stream.stats['device_stopped'])
+        self.assertEqual(self.stream.stats['other_normal'], 1)
+        self.assertEqual(self.stream.stats['pcm_frames'], 960)
+
+    def test_bounded_header_trace_and_per_session_parser_counters(self):
+        self.manager.transport_stats = dict(crc_errors=5, invalid_headers=2, discarded_bytes=100)
+        self.manager.transport_crc_frames = [(5, 16, 0, 100, 124, 64)]
+        self.manager.read_packet_bytes = 64
+        self.stream = self.manager.create(self.capture, self.failure)
+        self.begin()
+        for seq in range(200):
+            self.manager.observe_frame(Frame(AUDIO, 0, seq, 0, self.stream.tag, b'private audio'))
+        self.manager.transport_stats.update(crc_errors=6, discarded_bytes=120)
+        self.manager.transport_crc_frames.append((6, 16, 0, 200, 130, 64))
+        self.stream.close()
+        self.assertEqual(self.stream.stats['parser'], dict(crc_errors=1, invalid_headers=0, discarded_bytes=20))
+        recent = self.stream.stats['recent_frames']
+        self.assertEqual(len(recent), 20)
+        self.assertEqual(recent[-1], (16, 0, 199, 13))
+        self.assertNotIn('private audio', repr(self.stream.stats))
+        self.assertEqual(self.stream.stats['crc_frames'], [(16, 0, 200, 130, 64)])
+        self.assertEqual(self.stream.stats['read_packet_bytes'], 64)
 
     def test_bad_payload_does_not_commit_its_valid_prefix(self):
         self.begin();self.audio(11,payload=b'\0\1a\0')

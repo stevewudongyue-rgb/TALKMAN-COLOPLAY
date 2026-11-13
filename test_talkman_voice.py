@@ -356,6 +356,65 @@ class SessionTests(_SessionFixture):
         self.assertEqual(events[-1][0], "error")
         self.assertIn("断开", events[-1][1])
         self.assertTrue(audio.closed.is_set())
+        self.assertIn('失败原因：'+events[-1][1], events[-2][1])
+
+    def test_usb_gap_after_228_seconds_retains_actual_cause_in_diagnostic(self):
+        from unittest.mock import Mock
+        from talkman_airdata import AUDIO, CONTROL, Frame
+        from talkman_usb_audio import AudioManager
+        from talkman_coloplay_protocol import validate_config
+
+        session, socket, computer, events, _ = self.make()
+        decoder = Mock()
+        decoder.decode.return_value = (4576).to_bytes(2, 'little') * 960
+        manager = AudioManager(validate_config({}), lambda: decoder)
+        manager.available = True
+        manager.read_packet_bytes = 64
+        session.input_stream_factory = manager.create
+        # The connector fixture requires an input-ready marker; no RawInputStream.
+        computer.opened.set()
+        session.start()
+        manager.commands.get(timeout=1)
+        stream = manager.stream
+        for action, seq in (('started', 0), ('begin', 10)):
+            data = dict(protocol='TM_AUDIO_1', action=action, session=stream.session, tag=stream.tag)
+            manager.receive(Frame(CONTROL, 0 if action == 'begin' else 1, seq, 0, 0, json.dumps(data).encode()))
+        self.wait(lambda: any(kind == 'ready' for kind, _ in events))
+        for seq in range(11, 49):
+            manager.receive(Frame(AUDIO, 0, seq, 0, stream.tag, b'\0\1a'))
+        manager.transport_stats = dict(crc_errors=1, invalid_headers=0, discarded_bytes=64)
+        manager.transport_crc_frames = [(1, AUDIO, 0, 49, 124, 64)]
+        manager.receive(Frame(AUDIO, 0, 50, 0, stream.tag, b'\0\1a'))
+        self.done(session)
+        diagnostic = events[-2][1]
+        self.assertEqual(events[-2][0], 'diagnostic')
+        self.assertEqual(events[-1][0], 'error')
+        self.assertIn('36480（2.28 秒）', diagnostic)
+        self.assertIn('-17.1 dBFS', diagnostic)
+        self.assertIn('录音与实时识别', diagnostic)
+        self.assertIn('失败原因：'+events[-1][1], diagnostic)
+        self.assertIn('sequence_gap', diagnostic)
+        self.assertIn('期望 49，实际 50', diagnostic)
+        self.assertIn('Opus 解码：38 单元／36480 采样', diagnostic)
+        self.assertIn('USB 单次读取上限：64 字节', diagnostic)
+        self.assertIn('CRC 错误 1', diagnostic)
+        self.assertIn('16/0/49/124/64', diagnostic)
+        self.assertIsNone(computer.stream)
+        self.assertNotIn(stream.session, diagnostic)
+        self.assertNotIn(manager.config['token'], diagnostic)
+        self.assertNotIn('fake-offline-key', diagnostic)
+        self.assertFalse(any(kind == 'done' for kind, _ in events))
+
+    def test_arbitrary_network_exception_is_not_copied_to_diagnostic(self):
+        session, socket, _, events, _ = self.make()
+        def fail():
+            raise RuntimeError('secret-key private audio text')
+        socket.on_binary = fail
+        session.start()
+        self.done(session)
+        self.assertIn('失败原因：'+events[-1][1], events[-2][1])
+        self.assertNotIn('secret-key', repr(events))
+        self.assertNotIn('private audio text', repr(events))
 
     def test_limit_stops_and_finishes_with_bounded_last_chunk(self):
         self.patch("talkman_voice.MAX_RECORD_SECONDS", 0.05)
@@ -687,6 +746,7 @@ class FileSessionTests(_SessionFixture):
             self.assertIn(expected, events[-1][1])
             self.assertEqual(requests, [])
             self.assertEqual(events[-2][0], 'diagnostic')
+            self.assertIn('失败原因：'+events[-1][1], events[-2][1])
 
     def test_negative_full_scale_audio_is_valid(self):
         session, _, events, requests = self.make_file(audio=FakeAudio(sample=b'\x00\x80'))

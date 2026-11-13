@@ -105,11 +105,11 @@ class StateServer:
                 if kind == 'heartbeat':
                     last_rx = now
                     heartbeats += 1
-                elif kind in ('intent', 'cancel_intent', 'exit', 'cartridge_check'):
+                elif kind in ('intent', 'cancel_intent', 'exit', 'cartridge_check', 'cartridge_prepare'):
                     if self.events.qsize() >= 32:
                         reason = '动作队列已满'
                         ws.close(1013, '请稍后重试'); break
-                    if kind in ('intent', 'cartridge_check'):
+                    if kind in ('intent', 'cartridge_check', 'cartridge_prepare'):
                         identifier = message.get('id')
                         if not isinstance(identifier, str) or not 1 <= len(identifier) <= 32:
                             reason = '动作编号错误'
