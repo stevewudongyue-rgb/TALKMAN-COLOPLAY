@@ -4,6 +4,8 @@
 
 面向初代 COLOPLAY（240×240 圆屏、四键和旋钮）的独立桌面客户端。电脑负责文字编辑，设备负责操作与提醒。这里是 COLOPLAY 设备版，与 TalkMan Desktop 公开完整功能版分别维护；不使用兑换码解锁桌面功能。
 
+本仓库开源桌面客户端与Lua应用卡带，采用 [Apache License 2.0](LICENSE)。第三方图标、字体和原生依赖继续遵循各自许可，见 [第三方说明](THIRD_PARTY_NOTICES.md)。整机固件、官方Flutter桌面工程和托管模型服务不包含在本次源码范围内。
+
 ## 源码审阅：桌面 0.1.28.80／通用 USB 卡带 72
 
 本分支提供当前桌面端、Lua 卡带、构建脚本与回归测试，供同事审阅。请先看 [源码审阅与构建说明](TalkMan-源码审阅.md)，其中列出代码入口、USB 协议、验证范围与待解决问题。
@@ -37,7 +39,7 @@
 | [通用卡带71](https://github.com/stevewudongyue-rgb/TALKMAN-COLOPLAY/releases/download/coloplay-v0.1.28.77/TalkMan_COLOPLAY.rom) | Windows／Mac共用，官方程序导入 |
 | [校验值](https://github.com/stevewudongyue-rgb/TALKMAN-COLOPLAY/releases/download/coloplay-v0.1.28.77/TalkMan-SHA256SUMS.txt) | SHA-256 |
 
-[发布说明与源码](https://github.com/stevewudongyue-rgb/TALKMAN-COLOPLAY/releases/tag/coloplay-v0.1.28.77)。仓库目前需要访问权限；安装器内附通用USB卡带71，通用包不包含个人配对口令、模型Key或草稿。
+[发布说明与源码](https://github.com/stevewudongyue-rgb/TALKMAN-COLOPLAY/releases/tag/coloplay-v0.1.28.77)。仓库可公开访问；安装器内附通用USB卡带71，通用包不包含个人配对口令、模型Key或草稿。
 
 ### 通用卡带安装及三键更新
 
