@@ -107,13 +107,13 @@ class PassiveTests(unittest.TestCase):
         self.assertEqual(shown.update_hold, 220)
         for now in range(320, 5221, 100):
             shown = step(14, now)
-        self.assertEqual(shown.update_phase, 'error')
-        self.assertIn('官方程序', shown.update_message)
+        self.assertEqual(shown.update_phase, 'done')
+        self.assertIn('电脑正在准备卡带', shown.update_message)
         self.assertIsNone(cart.transport.audio)
         shown = step(0, 5300)
         self.assertIsNone(shown.update_hold)
-        self.assertEqual(shown.update_phase, 'error')
-        for now in range(5400, 10401, 100):
+        self.assertEqual(shown.update_phase, 'done')
+        for now in range(5400, 11401, 100):
             shown = step(0, now)
         self.assertIsNone(shown.update_phase)
 
@@ -212,15 +212,17 @@ class PassiveTests(unittest.TestCase):
 
 
 class LoopDevice:
-    def __init__(self, wire, clock, *, version=2, wrong=False, lose_reply=False, never_reply=False, outage=False, universal=False, stored=None):
+    def __init__(self, wire, clock, *, version=2, wrong=False, lose_reply=False, never_reply=False, outage=False, universal=False, stored=None, fragmented=False, packet_size=64):
         self.wire, self.clock, self.version = wire, clock, version
         self.cart = Cartridge(dict(wire.config, token='wrong') if wrong else wire.config,
                               universal=universal, stored=stored)
         self.writes, self.responses, self.loops = [], deque(), 0
         self.lose_reply, self.never_reply = lose_reply, never_reply
         self.outage = outage
+        self.fragmented, self.packet_size = fragmented, packet_size
+        self.read_sizes = set()
 
-    def get_active_configuration(self):return [Interface()]
+    def get_active_configuration(self):return [Interface(packet_size=self.packet_size)]
 
     def write(self, endpoint, data, **kwargs):
         _, kind, flags, _, seq, tag, sub, _ = HEADER.unpack_from(data)
@@ -234,14 +236,24 @@ class LoopDevice:
         return len(data)
 
     def read(self, endpoint, size, **kwargs):
-        self.loops += 1;self.clock[0] += .1
+        self.read_sizes.add(size)
+        self.loops += 1;self.clock[0] += .005 if self.fragmented else .1
         self.cart.step(self.clock[0]*1000)
         if self.cart.tx:
             response = self.cart.tx.popleft()
             if not (self.lose_reply or self.never_reply or self.outage and 15 <= self.loops <= 40):
                 self.responses.append(response)
             self.lose_reply = False
-        if self.loops >= 60:self.wire.stop.set()
+        if self.loops >= (1000 if self.fragmented else 60):self.wire.stop.set()
+        if self.fragmented:
+            if self.loops % 7 == 0:
+                from usb.core import USBTimeoutError
+                raise USBTimeoutError('simulated idle interval between USB packets')
+            if self.responses:
+                response = self.responses.popleft()
+                if len(response) > size:self.responses.appendleft(response[size:])
+                return response[:size]
+            return b''
         return self.responses.popleft() if self.responses else b''
 
 
@@ -261,6 +273,16 @@ class DesktopHandshakeTests(unittest.TestCase):
         events = list(wire.events.queue)
         self.assertFalse([event for event in events if event[0] == 'error'], events)
         return wire, device, events
+
+    def test_single_endpoint_packet_reads_reassemble_with_interleaved_timeouts(self):
+        for size in (64, 512):
+            with self.subTest(packet_size=size):
+                wire, device, events = self.run_wire(universal=True, fragmented=True, packet_size=size)
+                self.assertTrue(wire.paired and device.cart.transport.active)
+                self.assertEqual(device.read_sizes, {size})
+                self.assertEqual(wire.audio.read_packet_bytes, size)
+                self.assertFalse(any(wire.audio.transport_stats.values()))
+                self.assertIn('wake', [e[0] for e in events])
 
     def test_desktop75_handshakes_with_universal_blank_or_old_wifi_pairing(self):
         for stored in (None, validate_config({})):

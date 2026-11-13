@@ -42,6 +42,7 @@ class ColoPlayController:
         self.cartridge_offer = {}
         self.cartridge_download = None
         self.cartridge_request = ''
+        self.official_rom_busy = False
         self.active = False
         self.delivery_epoch = 0
         self.sending = False
@@ -223,6 +224,27 @@ class ColoPlayController:
                 return
             self.events.put(('cartridge_ready',peer,(identifier,download,error)))
         threading.Thread(target=prepare, daemon=True, name='TalkMan-准备卡带').start()
+
+    def prepare_official_rom(self):
+        if self.official_rom_busy:
+            self.local_notice('正在准备官网卡带，请稍候')
+            return False
+        if self.phase()[0] != 'idle' or self.app.input_picker.active:
+            self.local_notice('请先结束当前操作，再按三键准备卡带')
+            return False
+        self.official_rom_busy = True
+        self.local_notice('正在从官网下载并校验最新卡带…')
+
+        def worker():
+            from talkman_coloplay_official_rom import download_latest_rom
+            try:
+                result = download_latest_rom(Path.home() / 'Downloads')
+                self.events.put(('official_rom', None, ('ready', result)))
+            except (OSError, ValueError, UnicodeError) as error:
+                self.events.put(('official_rom', None, ('error', str(error))))
+
+        threading.Thread(target=worker, daemon=True, name='TalkMan-下载官网卡带').start()
+        return True
 
     def paused(self):
         a = self.app
@@ -715,6 +737,25 @@ class ColoPlayController:
                 else:
                     self.cartridge_download=download
                     self.cartridge_offer=dict(download.offer,id=identifier,status='ready')
+            elif kind == 'official_rom':
+                self.official_rom_busy = False
+                result, detail = value
+                if result == 'ready':
+                    path, build = detail
+                    installed = self.cartridge_version()
+                    if installed and build < installed:
+                        self.local_notice(f'官网卡带 {build} 低于当前卡带 {installed}，已保存在电脑，未打开安装入口')
+                        continue
+                    from talkman_coloplay_official_rom import open_official_app_and_reveal
+                    try:
+                        opened = open_official_app_and_reveal(path)
+                    except OSError:
+                        opened = False
+                    self.local_notice((f'卡带 {build} 已下载并校验；' +
+                                       ('请在官方程序的卡带管理中导入' if opened else '请打开官方程序的卡带管理导入')))
+                    self.app.status_var.set(f'ROM：{path}。请在官方 COLOPLAY Desktop 的卡带管理中选择上传 ROM；尚未安装到设备。')
+                else:
+                    self.local_notice('官网下载卡带失败：' + str(detail))
             elif peer == self.peer:
                 if kind in ('disconnected', 'exit'):
                     if not usb_owned and self.app.input_picker.active and self.app.input_picker.source == 'device':
@@ -727,6 +768,7 @@ class ColoPlayController:
                         self.cancel_navigation()
                 elif kind == 'intent' and not usb_owned: self.arm(value)
                 elif kind == 'cartridge_check' and not usb_owned: self.prepare_cartridge_update(value)
+                elif kind == 'cartridge_prepare' and not usb_owned: self.prepare_official_rom()
                 elif kind == 'cancel_intent' and not usb_owned:
                     self.intent.cancel(); self.cancel_navigation(); self.scroll.cancel()
         if self.usb_bridge:

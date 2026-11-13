@@ -69,6 +69,8 @@ class VersionTests(unittest.TestCase):
                 ws.recv(timeout=2);_,peer,_=events.get(timeout=2)
                 ws.send(json.dumps(dict(type='cartridge_check',id='u1')))
                 self.assertEqual(events.get(timeout=2),('cartridge_check',peer,dict(type='cartridge_check',id='u1')))
+                ws.send(json.dumps(dict(type='cartridge_prepare',id='u2')))
+                self.assertEqual(events.get(timeout=2),('cartridge_prepare',peer,dict(type='cartridge_prepare',id='u2')))
         finally:server.stop()
 
     def test_unknown_disconnected_newer_and_simulator_are_not_misreported(self):
@@ -135,6 +137,22 @@ class Desktop61Tests(unittest.TestCase):
             self.assertIs(d.cartridge_download,download)
             thread.call_args.kwargs['target']();late.close.assert_called_once()
         d.stop_cartridge_download()
+
+    def test_official_rom_download_is_one_job_and_older_website_rom_is_not_opened(self):
+        d=self.device
+        with patch.object(d,'phase',return_value=('recording','')):
+            self.assertFalse(d.prepare_official_rom())
+        with patch('talkman_coloplay.threading.Thread') as thread, \
+             patch('talkman_coloplay_official_rom.download_latest_rom',return_value=(Path('fixture.rom'),71)), \
+             patch('talkman_coloplay_official_rom.open_official_app_and_reveal') as launch:
+            self.assertTrue(d.prepare_official_rom())
+            self.assertFalse(d.prepare_official_rom())
+            self.assertEqual(thread.call_count,1)
+            thread.call_args.kwargs['target']()
+            d.local_session=Mock(device_build=72,enabled=True,source='usb')
+            self.tick()
+            launch.assert_not_called()
+            self.assertIn('低于当前卡带',self.app.status_var.get())
 
     def test_connection_version_clears_and_stale_disconnect_does_not_override(self):
         d=self.device

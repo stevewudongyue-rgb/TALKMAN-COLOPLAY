@@ -48,6 +48,10 @@ def main():
     assert 'arm64' in architecture
     with tempfile.TemporaryDirectory(prefix='TalkMan-COLOPLAY验收-') as folder:
         (Path(folder)/'interface.json').write_text('{"free_mode":false,"guide_seen":true}',encoding='utf-8')
+        # Empty config defaults to USB auto-connect; isolate smoke tests from
+        # a user's real device and running desktop/cartridge session.
+        (Path(folder)/'coloplay.json').write_text(
+            '{"connection_mode":"wifi","host":"127.0.0.1","port":28743,"discovery":false}', encoding='utf-8')
         env = dict(os.environ,TALKMAN_DATA_DIR=folder)
         with (root/'TalkMan-启动检查.log').open('w') as log:
             process=subprocess.Popen([str(executable)],env=env,stdout=log,stderr=log)
