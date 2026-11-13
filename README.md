@@ -4,6 +4,14 @@
 
 面向初代 COLOPLAY（240×240 圆屏、四键和旋钮）的独立桌面客户端。电脑负责文字编辑，设备负责操作与提醒。这里是 COLOPLAY 设备版，与 TalkMan Desktop 公开完整功能版分别维护；不使用兑换码解锁桌面功能。
 
+## 开源与最新源码审阅
+
+本仓库公开桌面客户端和Lua应用卡带，采用 [Apache License 2.0](LICENSE)。第三方组件保留原许可，见 [第三方说明](THIRD_PARTY_NOTICES.md)。官方Flutter桌面工程、整机固件和托管模型服务不包含在本次源码范围内。
+
+当前 `main` 保留已分发77的应用代码。**最新桌面80／通用卡带72源码**位于 [审阅分支](https://github.com/stevewudongyue-rgb/TALKMAN-COLOPLAY/tree/review/coloplay-desktop80-cartridge72)，同事可直接查看 [PR #1](https://github.com/stevewudongyue-rgb/TALKMAN-COLOPLAY/pull/1) 和分支内的 `TalkMan-源码审阅.md`，其中包含构建方法及已知问题。
+
+用户已反馈桌面80＋卡带71的USB录音恢复可用；关闭桌面约15–30秒设备整机重启仍待解决。源码审阅不代表更新已发布安装包或一键升级。
+
 ## 当前版本：桌面 0.1.28.77／通用 USB 卡带 71
 
 右上单按在空闲且编辑框有文字时清空全文，可用「上一步」恢复。Windows 与 Mac 77、通用卡带 71 已发布；应用内一键升级已切换到 77。
@@ -29,7 +37,7 @@
 | [通用卡带71](https://github.com/stevewudongyue-rgb/TALKMAN-COLOPLAY/releases/download/coloplay-v0.1.28.77/TalkMan_COLOPLAY.rom) | Windows／Mac共用，官方程序导入 |
 | [校验值](https://github.com/stevewudongyue-rgb/TALKMAN-COLOPLAY/releases/download/coloplay-v0.1.28.77/TalkMan-SHA256SUMS.txt) | SHA-256 |
 
-[发布说明与源码](https://github.com/stevewudongyue-rgb/TALKMAN-COLOPLAY/releases/tag/coloplay-v0.1.28.77)。仓库目前需要访问权限；安装器内附通用USB卡带71，通用包不包含个人配对口令、模型Key或草稿。
+[发布说明与源码](https://github.com/stevewudongyue-rgb/TALKMAN-COLOPLAY/releases/tag/coloplay-v0.1.28.77)。仓库可公开访问；安装器内附通用USB卡带71，通用包不包含个人配对口令、模型Key或草稿。
 
 ### 通用卡带安装及三键更新
 
